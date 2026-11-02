@@ -1,0 +1,4 @@
+data/*.h5ad
+tmp/
+__pycache__/
+.venv/
