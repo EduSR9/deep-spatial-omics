@@ -1,0 +1,16 @@
+model:
+  type: "metmap"       # "metmap", "sigma"
+  n_features: null     # null = all 2086 metabolites; an integer keeps the top-n by mean intensity
+  hidden_dim: 120
+  n_isodepth: 3
+
+training:
+  epochs: 3000
+  learning_rate: 0.001
+  lasso_lambda: 0.0001
+  lr_end_factor: 0.05   # LinearLR decays lr to 5% over lr_total_iters
+  lr_total_iters: 12000
+  seed: 0
+
+data:
+  filepath: "data/BC_515_Section_1.h5ad"
