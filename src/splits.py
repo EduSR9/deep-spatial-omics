@@ -92,8 +92,7 @@ def region_labels(annotation: np.ndarray, coords: np.ndarray, n_neighbors: int =
 
 def coverage_table(regions: np.ndarray, fold_ids: np.ndarray) -> pd.DataFrame:
     """Spot counts per region in each fold. Rows are folds, columns are regions."""
-    # TODO: pd.crosstab of fold_ids against regions
-    raise NotImplementedError
+    return pd.crosstab(index=fold_ids, columns = regions)
 
 
 def coverage_warnings(table: pd.DataFrame, min_fraction: float = 0.5) -> list[str]:
@@ -103,7 +102,28 @@ def coverage_warnings(table: pd.DataFrame, min_fraction: float = 0.5) -> list[st
     have under an even split. Unlabelled spots are ignored. A region with no spots at
     all is also flagged.
     """
-    # TODO: for Tumor, Stroma and Interface (even if missing from table, count as 0)
-    # TODO: if the region has no spots at all, add a warning and continue
-    # TODO: expected = total / n_folds; warn for each fold with count < min_fraction * expected
-    raise NotImplementedError
+    warnings = []
+    n_folds = len(table)
+    regions = ["Tumor", "Stroma", "Interface"]
+
+    for region in regions:
+        # 1. Total spots of that region
+        if region in table.columns:
+            counts = table[region]
+        else:
+            counts = pd.Series(0, index=table.index)
+
+        total = counts.sum()
+
+        if total == 0:
+            warnings.append(f"The region {region} has no spots.")
+            continue
+
+        expected = total/n_folds
+        umbral = min_fraction * expected
+    
+        for fold_id, count in counts.items():
+            if count < umbral:
+                warnings.append(f"Fold {fold_id} is under-represented for region {region}")
+
+    return warnings
