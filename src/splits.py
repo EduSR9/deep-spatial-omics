@@ -18,10 +18,18 @@ def random_splits(
     -------
     list of (train_idx, test_idx) pairs, each an np.ndarray of spot indices.
     """
-    # TODO: n_test = round(n_spots * test_fraction)
-    # TODO: for each repeat r, perm = np.random.default_rng(seed + r).permutation(n_spots)
-    # TODO: append (np.sort(perm[n_test:]), np.sort(perm[:n_test]))
-    raise NotImplementedError
+    n_test = round(n_spots*test_fraction)
+
+    splits = []
+
+    for r in range(n_repeats):
+        rng = np.random.default_rng(seed + r)
+        perm = rng.permutation(n_spots)
+        train_idx = perm[n_test:]
+        test_idx = perm[:n_test]
+        splits.append((np.sort(train_idx),np.sort(test_idx)))
+
+    return(splits)
 
 
 def spatial_folds(coords: np.ndarray, n_folds: int = 5, seed: int = 0, n_iter: int = 100) -> np.ndarray:
@@ -34,10 +42,20 @@ def spatial_folds(coords: np.ndarray, n_folds: int = 5, seed: int = 0, n_iter: i
     -------
     np.ndarray of int, shape (n_spots,), values in 0..n_folds-1
     """
-    # TODO: pick n_folds random spots as initial centers (seeded rng)
-    # TODO: loop up to n_iter: assign each spot to nearest center, recompute centers, stop when unchanged
-    # TODO: return the fold label per spot
-    raise NotImplementedError
+    n_spots = coords.shape[0]
+    rng = np.random.default_rng(seed)
+    initial_indices = rng.choice(n_spots, size = n_folds, replace=False)
+    centers = coords[initial_indices]
+    for _ in range(n_iter):
+        dist = np.array([np.linalg.norm(coords - c, axis = 1) for c in centers])
+        labels = np.argmin(dist, axis = 0)
+        new_centers = np.empty_like(centers)
+        for k in range(n_folds):
+            new_centers[k] = coords[labels == k].mean(axis=0) if np.any(labels == k) else centers[k]
+        if np.array_equal(new_centers, centers):
+            break
+        centers = new_centers
+    return(labels)
 
 
 def region_labels(annotation: np.ndarray, coords: np.ndarray, n_neighbors: int = 6) -> np.ndarray:
