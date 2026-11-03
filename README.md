@@ -22,6 +22,8 @@ src/
   model.py           MetMapMLP: encoder (x, y) -> isodepths, linear decoder -> metabolites
   train.py           loss (MSE + L1 on decoder weights) and training loop
   evaluate.py        per-metabolite R^2, scaled loadings, ranking table
+  splits.py          random 80/20 repeats, spatial k-fold, Tumor/Stroma/Interface coverage
+  cv.py              fresh model per split, held-out metrics, mean and spread across runs
   viz.py             figures
   dummy_data.py      small synthetic dataset for running without the real file
 data/                put BC_515_Section_1.h5ad here (not tracked by git)

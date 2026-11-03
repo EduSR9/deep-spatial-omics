@@ -31,9 +31,17 @@ python src/main.py --dummy                                  # synthetic data, no
 python src/main.py --exp-name baseline                      # real data, config.yaml defaults
 python src/main.py --exp-name top100 --n-features 100       # only the 100 most abundant metabolites
 python src/main.py --exp-name iso5 --n-isodepth 5
+python src/main.py --exp-name cv --cv                       # evaluation: random splits + spatial CV
 ```
 
 Every run writes to `results/<exp-name>/`, including the exact `config.yaml` used.
+
+`--cv` trains a new model for each split and reports held-out results. It writes
+`coverage.csv`, `spatial_folds.png`, `cv_results.csv` and `cv_summary.csv`. Spatial
+CV is the main evaluation; random splits are a secondary check. Settings for the
+splits (number of repeats, number of folds, interface definition) are in the
+`evaluation` section of `config.yaml`. Without `--cv`, the run trains one model on
+all spots, as before.
 
 Available overrides: `--n-features`, `--n-isodepth`, `--hidden-dim`, `--epochs`,
 `--learning-rate`, `--lasso-lambda`, `--seed`.
