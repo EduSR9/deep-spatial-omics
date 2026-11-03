@@ -21,10 +21,10 @@ def random_splits(
     n_test = round(n_spots*test_fraction)
 
     splits = []
-
+    # Run n_repeats
     for r in range(n_repeats):
-        rng = np.random.default_rng(seed + r)
-        perm = rng.permutation(n_spots)
+        rng = np.random.default_rng(seed + r) # Getting a random seed
+        perm = rng.permutation(n_spots) # Permutation
         train_idx = perm[n_test:]
         test_idx = perm[:n_test]
         splits.append((np.sort(train_idx),np.sort(test_idx)))
@@ -47,6 +47,7 @@ def spatial_folds(coords: np.ndarray, n_folds: int = 5, seed: int = 0, n_iter: i
     initial_indices = rng.choice(n_spots, size = n_folds, replace=False)
     centers = coords[initial_indices]
     for _ in range(n_iter):
+        # Measuring the distance of every point to c (centers)
         dist = np.array([np.linalg.norm(coords - c, axis = 1) for c in centers])
         labels = np.argmin(dist, axis = 0)
         new_centers = np.empty_like(centers)
@@ -68,10 +69,25 @@ def region_labels(annotation: np.ndarray, coords: np.ndarray, n_neighbors: int =
     -------
     np.ndarray of str, shape (n_spots,)
     """
-    # TODO: find the n_neighbors nearest spots for each spot (exclude the spot itself)
-    # TODO: mark Tumor spots with a Stroma neighbour, and Stroma spots with a Tumor neighbour, as "Interface"
-    # TODO: all other labels stay as in annotation
-    raise NotImplementedError
+    result = annotation.copy()
+
+    for i in range(len(coords)):
+        curr_spot = coords[i]
+
+        # 1. Calculate distances and neighbors for each point
+        dist = np.array(np.linalg.norm(coords - curr_spot, axis = 1))
+        sort_dist = np.argsort(dist)
+        neighbors_idx = sort_dist[1:n_neighbors + 1]
+
+        # 2. Check tags with the original tags
+        for j in neighbors_idx:
+            if annotation[i] == "Tumor" and annotation[j] == "Stroma":
+                result[i] = "Interface"
+                break # After one is enough
+            elif annotation[i] == "Stroma" and annotation[j] == "Tumor":
+                result[i] = "Interface"
+                break
+    return result
 
 
 def coverage_table(regions: np.ndarray, fold_ids: np.ndarray) -> pd.DataFrame:
