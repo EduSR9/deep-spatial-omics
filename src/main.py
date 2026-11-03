@@ -11,18 +11,28 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
+import pandas as pd
 import torch
 import yaml
 
+from src.cv import evaluate_splits, summarize
 from src.data import load_bc515, select_top_metabolites, standardize, tic_normalize
 from src.dummy_data import create_dummy_bc515
 from src.evaluate import rank_metabolites, reconstruction_r2, scaled_loadings
 from src.model import MetMapMLP
+from src.splits import (
+    coverage_table,
+    coverage_warnings,
+    random_splits,
+    region_labels,
+    spatial_folds,
+)
 from src.train import train_model
 from src.viz import (
     plot_annotations,
     plot_gradient_profile,
     plot_isodepths,
+    plot_spatial_folds,
     plot_top_metabolites,
     plot_training_loss,
 )
@@ -54,6 +64,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--lasso-lambda", type=float)
     parser.add_argument("--seed", type=int)
+    parser.add_argument("--cv", action="store_true",
+                        help="Run the evaluation protocol (random splits + spatial CV) instead of the full-data fit")
     return parser.parse_args()
 
 
@@ -72,6 +84,49 @@ def set_deterministic(seed: int) -> None:
     np.random.seed(seed)
     torch.set_num_threads(1)
     torch.use_deterministic_algorithms(True)
+
+
+def run_cv(
+    cfg: dict,
+    out_dir: Path,
+    coords: np.ndarray,
+    annotation: np.ndarray,
+    coords_t: torch.Tensor,
+    targets_t: torch.Tensor,
+) -> None:
+    """Evaluation protocol: random 80/20 repeats and spatial k-fold, a fresh model per split."""
+    eval_cfg = cfg["evaluation"]
+    seed = cfg["training"]["seed"]
+    model_cls = MODEL_REGISTRY[cfg["model"]["type"]]
+    n_spots = coords_t.shape[0]
+
+    # Check coverage before training, so a bad split is caught early.
+    regions = region_labels(annotation, coords, eval_cfg["interface_neighbors"])
+    fold_ids = spatial_folds(coords, eval_cfg["n_spatial_folds"], seed=seed)
+    table = coverage_table(regions, fold_ids)
+    table.to_csv(out_dir / "coverage.csv")
+    for warning in coverage_warnings(table, eval_cfg["min_fold_fraction"]):
+        print(f"WARNING: {warning}")
+    plot_spatial_folds(coords, fold_ids, regions, out_dir / "spatial_folds.png")
+
+    random = random_splits(n_spots, eval_cfg["n_random_repeats"], eval_cfg["test_fraction"], seed)
+    spatial = [
+        (np.flatnonzero(fold_ids != k), np.flatnonzero(fold_ids == k))
+        for k in range(eval_cfg["n_spatial_folds"])
+    ]
+
+    results = pd.concat([
+        evaluate_splits(model_cls, cfg["model"], cfg["training"], coords_t, targets_t,
+                        random, regions, "random"),
+        evaluate_splits(model_cls, cfg["model"], cfg["training"], coords_t, targets_t,
+                        spatial, regions, "spatial"),
+    ], ignore_index=True)
+    results.to_csv(out_dir / "cv_results.csv", index=False)
+
+    summary = summarize(results)
+    summary.to_csv(out_dir / "cv_summary.csv")
+    print(summary.to_string())
+    print(f"CV results in {out_dir}")
 
 
 def main() -> None:
@@ -97,6 +152,10 @@ def main() -> None:
     coords_t = torch.tensor(standardize(coords), dtype=torch.float32)
     targets_t = torch.tensor(standardize(msi_log), dtype=torch.float32)
     print(f"Spots: {coords_t.shape[0]} | metabolites: {targets_t.shape[1]}")
+
+    if args.cv:
+        run_cv(cfg, out_dir, coords, annotation, coords_t, targets_t)
+        return
 
     # Model
     model_cls = MODEL_REGISTRY[cfg["model"]["type"]]

@@ -19,6 +19,20 @@ def plot_annotations(coords: np.ndarray, annotation: np.ndarray, save_path: str 
     raise NotImplementedError
 
 
+def plot_spatial_folds(
+    coords: np.ndarray,
+    fold_ids: np.ndarray,
+    regions: np.ndarray,
+    save_path: str | Path,
+) -> None:
+    """Left: spots colored by spatial fold. Right: spots colored by region (Tumor, Stroma, Interface)."""
+    # TODO: two side-by-side panels with equal aspect
+    # TODO: left: scatter coords colored by fold_ids (categorical colormap), title "Spatial folds"
+    # TODO: right: scatter coords colored by regions (Tumor, Stroma, Interface, Unlabelled), legend with counts
+    # TODO: save and close
+    raise NotImplementedError
+
+
 def plot_training_loss(total_losses: np.ndarray, l1_losses: np.ndarray, save_path: str | Path) -> None:
     """Left: total objective and MSE (total - l1) per epoch. Right: L1 penalty per epoch."""
     # TODO: two side-by-side panels, save and close

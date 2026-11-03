@@ -14,3 +14,10 @@ training:
 
 data:
   filepath: "data/BC_515_Section_1.h5ad"
+
+evaluation:
+  test_fraction: 0.2          # random splits: fraction of spots held out
+  n_random_repeats: 5         # independent random 80/20 splits
+  n_spatial_folds: 5          # k-means blocks on (x, y); each block is held out once
+  interface_neighbors: 6      # Tumor/Stroma spot is "Interface" if one of its k nearest spots has the other label
+  min_fold_fraction: 0.5      # warn if a region has < this fraction of its even-split count in any fold
