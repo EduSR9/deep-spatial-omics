@@ -81,10 +81,7 @@ def region_labels(annotation: np.ndarray, coords: np.ndarray, n_neighbors: int =
 
         # 2. Check tags with the original tags
         for j in neighbors_idx:
-            if annotation[i] == "Tumor" and annotation[j] == "Stroma":
-                result[i] = "Interface"
-                break # After one is enough
-            elif annotation[i] == "Stroma" and annotation[j] == "Tumor":
+            if annotation[i] == "Stroma" and annotation[j] == "Tumor":
                 result[i] = "Interface"
                 break
     return result
