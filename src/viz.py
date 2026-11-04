@@ -20,7 +20,6 @@ def plot_annotations(
     """
     Tissue map coloured by Tumor / Stroma / Unlabelled, with counts in the legend.
     """
-    print("Running my new func!")
     colors = {
         "Tumor": "#c96862",
         "Stroma": "#62a6a5",
@@ -63,12 +62,59 @@ def plot_spatial_folds(
     regions: np.ndarray,
     save_path: str | Path,
 ) -> None:
-    """Left: spots colored by spatial fold. Right: spots colored by region (Tumor, Stroma, Interface)."""
-    # TODO: two side-by-side panels with equal aspect
-    # TODO: left: scatter coords colored by fold_ids (categorical colormap), title "Spatial folds"
-    # TODO: right: scatter coords colored by regions (Tumor, Stroma, Interface, Unlabelled), legend with counts
-    # TODO: save and close
-    raise NotImplementedError
+
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=(12, 5),
+    )
+
+    scatter = axes[0].scatter(
+        coords[:, 0],
+        coords[:, 1],
+        c=fold_ids,
+        cmap="tab10",
+        s=5,
+    )
+
+    axes[0].set_title("Spatial folds")
+    axes[0].set_aspect("equal")
+
+    fig.colorbar(
+        scatter,
+        ax=axes[0],
+    )
+
+    colors = {
+        "Tumor": "#c96862",
+        "Stroma": "#62a6a5",
+        "Interface": "#e0c24d",
+        "Unlabelled": "#b8b8b8",
+    }
+
+    for label, color in colors.items():
+
+        mask = regions == label
+
+        if np.any(mask):
+
+            axes[1].scatter(
+                coords[mask, 0],
+                coords[mask, 1],
+                c=color,
+                s=5,
+                label=f"{label} (n={mask.sum()})",
+            )
+
+    axes[1].set_title("Regions")
+    axes[1].set_aspect("equal")
+    axes[1].legend()
+
+    plt.tight_layout()
+
+    plt.savefig(save_path, dpi=300)
+
+    plt.close()
 
 
 def plot_training_loss(
@@ -186,10 +232,71 @@ def plot_top_metabolites(
     mz: np.ndarray,
     save_path: str | Path,
 ) -> None:
-    """For the top-ranked metabolites: tissue map (top row) and observed vs reconstructed (bottom row)."""
-    # TODO: top row: scatter coords colored by msi_log[:, j], title with m/z
-    # TODO: bottom row: target[:, j] vs prediction[:, j] with dashed y = x, title with R^2
-    raise NotImplementedError
+
+    n = len(top_idx)
+
+    fig, axes = plt.subplots(
+        2,
+        n,
+        figsize=(4 * n, 8),
+    )
+
+    for col, j in enumerate(top_idx):
+
+        scatter = axes[0, col].scatter(
+            coords[:, 0],
+            coords[:, 1],
+            c=msi_log[:, j],
+            cmap="viridis",
+            s=5,
+        )
+
+        axes[0, col].set_title(
+            str(mz[j])
+        )
+
+        axes[0, col].set_aspect("equal")
+
+        fig.colorbar(
+            scatter,
+            ax=axes[0, col],
+        )
+
+        axes[1, col].scatter(
+            target[:, j],
+            prediction[:, j],
+            s=5,
+            alpha=0.5,
+        )
+
+        xmin = min(
+            target[:, j].min(),
+            prediction[:, j].min(),
+        )
+
+        xmax = max(
+            target[:, j].max(),
+            prediction[:, j].max(),
+        )
+
+        axes[1, col].plot(
+            [xmin, xmax],
+            [xmin, xmax],
+            "k--",
+        )
+
+        axes[1, col].set_title(
+            f"R² = {r2[j]:.3f}"
+        )
+
+        axes[1, col].set_xlabel("Observed")
+        axes[1, col].set_ylabel("Predicted")
+
+    plt.tight_layout()
+
+    plt.savefig(save_path, dpi=300)
+
+    plt.close()
 
 
 def plot_gradient_profile(

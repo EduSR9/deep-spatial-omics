@@ -13,26 +13,10 @@ def compute_loss(
     decoder_weight: torch.Tensor,
     lasso_lambda: float,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """MSE over all spots and features plus L1 on the decoder weights.
-
-    Parameters
-    ----------
-    pred, target : torch.Tensor, shape (n_spots, n_features)
-    decoder_weight : torch.Tensor
-        model.decoder.weight (bias is not penalized).
-    lasso_lambda : float
-
-    Returns
-    -------
-    total : torch.Tensor
-        Scalar MSE + L1.
-    l1 : torch.Tensor
-        Scalar L1 term alone, for logging.
-    """
-    # TODO: mse = nn.functional.mse_loss(pred, target, reduction="mean")
-    # TODO: l1 = lasso_lambda * torch.norm(decoder_weight, 1)   (sum of |w|, not mean)
-    # TODO: return mse + l1, l1
-    raise NotImplementedError
+    """Mean reconstruction error plus decoder weight L1."""
+    mse = nn.functional.mse_loss(pred, target, reduction="mean")
+    l1 = lasso_lambda * torch.norm(decoder_weight, 1)
+    return mse + l1, l1
 
 
 def train_model(
@@ -41,25 +25,29 @@ def train_model(
     targets: torch.Tensor,
     cfg: dict,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Train on all spots (no train/test split, as in the original method).
+    """Train a fresh model on preprocessed training spots only."""
+    model.train()
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg["learning_rate"])
+    scheduler = torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=1, end_factor=cfg["lr_end_factor"],
+        total_iters=cfg["lr_total_iters"],
+    )
+    total_losses = np.zeros(cfg["epochs"])
+    l1_losses = np.zeros(cfg["epochs"])
+    # Match the reference input-gradient path.
+    coords = coords.detach().clone().requires_grad_(True)
 
-    Parameters
-    ----------
-    model : nn.Module
-    coords : torch.Tensor, shape (n_spots, 2)
-    targets : torch.Tensor, shape (n_spots, n_features)
-    cfg : dict
-        The "training" section of config.yaml.
+    for epoch in range(cfg["epochs"]):
+        optimizer.zero_grad()
+        coords.grad = None
+        prediction, _ = model(coords)
+        total, l1 = compute_loss(prediction, targets, model.decoder.weight, cfg["lasso_lambda"])
+        total_losses[epoch] = total.item()
+        l1_losses[epoch] = l1.item()
+        total.backward()
+        optimizer.step()
+        scheduler.step()
+        if (epoch + 1) % 500 == 0:
+            print(f"Epoch {epoch + 1}: total={total.item():.6f}, MSE={(total - l1).item():.6f}", flush=True)
 
-    Returns
-    -------
-    total_losses : np.ndarray, shape (epochs,)
-        Objective recorded before each parameter update.
-    l1_losses : np.ndarray, shape (epochs,)
-    """
-    # TODO: optimizer = torch.optim.Adam(model.parameters(), lr=cfg["learning_rate"])
-    # TODO: scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1,
-    #       end_factor=cfg["lr_end_factor"], total_iters=cfg["lr_total_iters"])
-    # TODO: each epoch: zero_grad, forward, compute_loss, record losses, backward, optimizer.step, scheduler.step
-    # TODO: print total and MSE every 500 epochs
-    raise NotImplementedError
+    return total_losses, l1_losses
