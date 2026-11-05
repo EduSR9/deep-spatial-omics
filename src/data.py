@@ -28,7 +28,7 @@ def load_bc515(
         Raw metabolite intensities.
 
     annotation : np.ndarray of str, shape (3508,)
-        "Tumor", "Stroma" or "Unlabelled".
+        "Tumor", "Stroma" or "Unlabelled". Used for plots only, never for training.
 
     mz : np.ndarray of str, shape (2086,)
         m/z label of each metabolite.
