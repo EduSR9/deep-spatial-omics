@@ -67,7 +67,7 @@ def load_bc515(
     return coords, msi, annotation, mz
 
 
-def tic_normalize(msi: np.ndarray) -> np.ndarray:
+def tic_normalize(msi: np.ndarray, tic_mean: float | None = None) -> np.ndarray:
     """Total-ion-count normalization followed by log1p.
 
     Formula:
@@ -89,7 +89,9 @@ def tic_normalize(msi: np.ndarray) -> np.ndarray:
     assert np.all(tic > 0), \
         "At least one spot has TIC = 0"
 
-    msi_norm = msi / tic[:, None] * tic.mean()
+    if tic_mean is None:
+        tic_mean = tic.mean()
+    msi_norm = msi / tic[:, None] * tic_mean
 
     return np.log1p(msi_norm)
 
@@ -105,12 +107,13 @@ def select_top_metabolites(
     return np.argsort(mean_intensity)[::-1][:n]
 
 
-def standardize(x: np.ndarray) -> np.ndarray:
-    """Z-score each column (ddof=0)."""
+def standardize(x: np.ndarray, reference: np.ndarray | None = None) -> np.ndarray:
+    """Z-score using reference statistics when supplied (ddof=0)."""
 
-    mean = x.mean(axis=0)
+    reference = x if reference is None else reference
+    mean = reference.mean(axis=0)
 
-    std = x.std(axis=0, ddof=0)
+    std = reference.std(axis=0, ddof=0)
 
     std = np.where(
         std == 0,
@@ -119,3 +122,18 @@ def standardize(x: np.ndarray) -> np.ndarray:
     )
 
     return (x - mean) / std
+
+
+def preprocess_split(coords, msi, train_idx, test_idx, n_features=None):
+    """Fit preprocessing on training spots and apply it to both subsets."""
+    train_coords, test_coords = coords[train_idx], coords[test_idx]
+    tic_mean = msi[train_idx].sum(axis=1).mean()
+    train_log = tic_normalize(msi[train_idx], tic_mean)
+    test_log = tic_normalize(msi[test_idx], tic_mean)
+    if n_features is not None:
+        keep = select_top_metabolites(train_log, n_features)
+        train_log, test_log = train_log[:, keep], test_log[:, keep]
+    return (
+        standardize(train_coords), standardize(test_coords, train_coords),
+        standardize(train_log), standardize(test_log, train_log),
+    )
