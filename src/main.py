@@ -91,14 +91,13 @@ def run_cv(
     out_dir: Path,
     coords: np.ndarray,
     annotation: np.ndarray,
-    coords_t: torch.Tensor,
-    targets_t: torch.Tensor,
+    msi: np.ndarray,
 ) -> None:
     """Evaluation protocol: random 80/20 repeats and spatial k-fold, a fresh model per split."""
     eval_cfg = cfg["evaluation"]
     seed = cfg["training"]["seed"]
     model_cls = MODEL_REGISTRY[cfg["model"]["type"]]
-    n_spots = coords_t.shape[0]
+    n_spots = coords.shape[0]
 
     # Check coverage before training, so a bad split is caught early.
     regions = region_labels(annotation, coords, eval_cfg["interface_neighbors"])
@@ -116,9 +115,9 @@ def run_cv(
     ]
 
     results = pd.concat([
-        evaluate_splits(model_cls, cfg["model"], cfg["training"], coords_t, targets_t,
+        evaluate_splits(model_cls, cfg["model"], cfg["training"], coords, msi,
                         random, regions, "random"),
-        evaluate_splits(model_cls, cfg["model"], cfg["training"], coords_t, targets_t,
+        evaluate_splits(model_cls, cfg["model"], cfg["training"], coords, msi,
                         spatial, regions, "spatial"),
     ], ignore_index=True)
     results.to_csv(out_dir / "cv_results.csv", index=False)
@@ -144,6 +143,10 @@ def main() -> None:
         coords, msi, annotation, mz = create_dummy_bc515()
     else:
         coords, msi, annotation, mz = load_bc515(cfg["data"]["filepath"])
+    if args.cv:
+        run_cv(cfg, out_dir, coords, annotation, msi)
+        return
+
     msi_log = tic_normalize(msi)
     n_features = cfg["model"]["n_features"]
     if n_features is not None:
@@ -152,10 +155,6 @@ def main() -> None:
     coords_t = torch.tensor(standardize(coords), dtype=torch.float32)
     targets_t = torch.tensor(standardize(msi_log), dtype=torch.float32)
     print(f"Spots: {coords_t.shape[0]} | metabolites: {targets_t.shape[1]}")
-
-    if args.cv:
-        run_cv(cfg, out_dir, coords, annotation, coords_t, targets_t)
-        return
 
     # Model
     model_cls = MODEL_REGISTRY[cfg["model"]["type"]]
