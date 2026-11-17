@@ -40,20 +40,21 @@ def scaled_loadings(weights: np.ndarray, isodepths: np.ndarray) -> np.ndarray:
     return np.abs(weights) * isodepths.std(axis=0, ddof=0) 
 
 
-def rank_metabolites(mz: np.ndarray, r2: np.ndarray, loadings: np.ndarray) -> pd.DataFrame:
+def rank_metabolites(mz: np.ndarray, r2: np.ndarray, loadings: np.ndarray | None) -> pd.DataFrame:
     """Table of metabolites sorted by R^2, descending.
 
     Columns: feature_index, mz, reconstruction_r2, strongest_gradient (1-based),
-    scaled_loading_1 ... scaled_loading_K.
+    scaled_loading_1 ... scaled_loading_K. Loading columns require a linear decoder.
     """
     data = {
         "feature_index": np.arange(len(mz)),
         "mz": mz,
         "reconstruction_r2": r2,
-        "strongest_gradient": np.argmax(loadings, axis=1) + 1
     }
-    for k in range(loadings.shape[1]):
-        data[f"scaled_loading_{k + 1}"] = loadings[:, k]
+    if loadings is not None:
+        data["strongest_gradient"] = np.argmax(loadings, axis=1) + 1
+        for k in range(loadings.shape[1]):
+            data[f"scaled_loading_{k + 1}"] = loadings[:, k]
 
     rank_df = pd.DataFrame(data)
     rank_df = rank_df.sort_values("reconstruction_r2", ascending=False, kind="stable")
