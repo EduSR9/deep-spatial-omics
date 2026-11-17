@@ -125,15 +125,17 @@ def standardize(x: np.ndarray, reference: np.ndarray | None = None) -> np.ndarra
 
 
 def preprocess_split(coords, msi, train_idx, test_idx, n_features=None):
-    """Fit preprocessing on training spots and apply it to both subsets."""
+    """Return processed arrays and their original MSI column indices."""
     train_coords, test_coords = coords[train_idx], coords[test_idx]
     tic_mean = msi[train_idx].sum(axis=1).mean()
     train_log = tic_normalize(msi[train_idx], tic_mean)
     test_log = tic_normalize(msi[test_idx], tic_mean)
+    keep = np.arange(msi.shape[1])
     if n_features is not None:
         keep = select_top_metabolites(train_log, n_features)
         train_log, test_log = train_log[:, keep], test_log[:, keep]
-    return (
+    arrays = (
         standardize(train_coords), standardize(test_coords, train_coords),
         standardize(train_log), standardize(test_log, train_log),
     )
+    return arrays, keep

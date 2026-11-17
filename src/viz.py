@@ -119,9 +119,18 @@ def plot_spatial_folds(
 
 def plot_training_loss(
     total_losses: np.ndarray,
-    l1_losses: np.ndarray,
+    l1_losses: np.ndarray | None,
     save_path: str | Path,
 ) -> None:
+
+    if l1_losses is None:
+        fig, ax = plt.subplots(figsize=(5, 4))
+        ax.plot(np.arange(1, len(total_losses) + 1), total_losses)
+        ax.set(xlabel="Epoch", ylabel="Training MSE")
+        fig.tight_layout()
+        fig.savefig(save_path, dpi=300)
+        plt.close(fig)
+        return
 
     mse_losses = total_losses - l1_losses
 
@@ -239,6 +248,7 @@ def plot_top_metabolites(
         2,
         n,
         figsize=(4 * n, 8),
+        squeeze=False,
     )
 
     for col, j in enumerate(top_idx):

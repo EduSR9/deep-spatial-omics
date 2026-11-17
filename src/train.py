@@ -6,6 +6,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from src.attention import AttentionMetMap
+
 
 def compute_loss(
     pred: torch.Tensor,
@@ -24,16 +26,24 @@ def train_model(
     coords: torch.Tensor,
     targets: torch.Tensor,
     cfg: dict,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray | None]:
     """Train a fresh model on preprocessed training spots only."""
     model.train()
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg["learning_rate"])
+    attention = isinstance(model, AttentionMetMap)
+    if attention:
+        optimizer = torch.optim.AdamW([
+            {"params": [p for p in model.parameters() if p.ndim >= 2],
+             "weight_decay": cfg.get("weight_decay", 0.01)},
+            {"params": [p for p in model.parameters() if p.ndim < 2], "weight_decay": 0.0},
+        ], lr=cfg["learning_rate"])
+    else:
+        optimizer = torch.optim.Adam(model.parameters(), lr=cfg["learning_rate"])
     scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=1, end_factor=cfg["lr_end_factor"],
         total_iters=cfg["lr_total_iters"],
     )
     total_losses = np.zeros(cfg["epochs"])
-    l1_losses = np.zeros(cfg["epochs"])
+    l1_losses = None if attention else np.zeros(cfg["epochs"])
     # Match the reference input-gradient path.
     coords = coords.detach().clone().requires_grad_(True)
 
@@ -41,13 +51,17 @@ def train_model(
         optimizer.zero_grad()
         coords.grad = None
         prediction, _ = model(coords)
-        total, l1 = compute_loss(prediction, targets, model.decoder.weight, cfg["lasso_lambda"])
+        if l1_losses is not None:
+            total, l1 = compute_loss(prediction, targets, model.decoder.weight, cfg["lasso_lambda"])
+            l1_losses[epoch] = l1.item()
+        else:
+            total = nn.functional.mse_loss(prediction, targets, reduction="mean")
         total_losses[epoch] = total.item()
-        l1_losses[epoch] = l1.item()
         total.backward()
         optimizer.step()
         scheduler.step()
         if (epoch + 1) % 500 == 0:
-            print(f"Epoch {epoch + 1}: total={total.item():.6f}, MSE={(total - l1).item():.6f}", flush=True)
+            mse = total_losses[epoch] - (l1_losses[epoch] if l1_losses is not None else 0.0)
+            print(f"Epoch {epoch + 1}: total={total.item():.6f}, MSE={mse:.6f}", flush=True)
 
     return total_losses, l1_losses

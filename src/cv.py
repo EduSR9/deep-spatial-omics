@@ -16,10 +16,11 @@ def evaluate_splits(
     train_cfg: dict,
     coords: np.ndarray,
     msi: np.ndarray,
+    mz: np.ndarray,
     splits: list[tuple[np.ndarray, np.ndarray]],
     regions: np.ndarray,
     protocol: str,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Train a new model for each split and score it on the held-out spots.
 
     Parameters
@@ -27,21 +28,22 @@ def evaluate_splits(
     model_cls, model_cfg : model class and the "model" section of config.yaml
     train_cfg : the "training" section of config.yaml
     coords, msi : np.ndarray, raw coordinates and MSI for all spots
+    mz : np.ndarray, original m/z labels in MSI column order
     splits : list of (train_idx, test_idx)
     regions : np.ndarray of str, shape (n_spots,), from splits.region_labels
     protocol : "random" or "spatial", stored in the output table
 
     Returns
     -------
-    pd.DataFrame, one row per split with n_train, n_test, held-out counts per region,
-    test_mse and median_r2.
+    Two tables with split-level metrics and held-out R^2 per feature.
     """
     results = []
+    feature_results = []
 
     for i, (train_idx, test_idx) in enumerate(splits):
         torch.manual_seed(train_cfg["seed"] + i)
 
-        arrays = preprocess_split(coords, msi, train_idx, test_idx, model_cfg["n_features"])
+        arrays, keep = preprocess_split(coords, msi, train_idx, test_idx, model_cfg["n_features"])
         train_coords, test_coords, train_targets, test_targets = (
             torch.tensor(x, dtype=torch.float32) for x in arrays
         )
@@ -84,10 +86,20 @@ def evaluate_splits(
             "Stroma": stroma_count,
             "Interface": interface_count,
             "test_mse": test_mse,
-            "median_r2": median_r2
+            "median_r2": median_r2,
+            "split": i,
+            "n_valid_r2": int(np.count_nonzero(~np.isnan(r2))),
         })
+        feature_results.append(pd.DataFrame({
+            "protocol": protocol,
+            "split": i,
+            "feature_index": keep,
+            "mz": mz[keep],
+            "r2": r2,
+        }))
 
-    return pd.DataFrame(results)
+    features = pd.concat(feature_results, ignore_index=True) if feature_results else pd.DataFrame()
+    return pd.DataFrame(results), features
 
 
 def summarize(results: pd.DataFrame) -> pd.DataFrame:
