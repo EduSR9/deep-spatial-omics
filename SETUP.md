@@ -68,10 +68,8 @@ Available overrides: `--model`, `--data`, `--n-features`, `--n-isodepth`, `--hid
 
 ### Adding a model
 
-See "HOW TO ADD A NEW MODEL" at the top of `src/model.py`, and the comments above
-`models:` in `config.yaml`. Test a new model with:
+See the top of `src/model.py`. Test with:
 
 ```bash
-python src/main.py --dummy --model my_model --exp-name test_my_model
 python src/main.py --dummy --cv --exp-name test_cv
 ```
