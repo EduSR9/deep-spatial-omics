@@ -310,13 +310,13 @@ def plot_top_metabolites(
 
 
 def plot_model_boxplots(out_dir: str | Path, models: list[dict]) -> pd.DataFrame:
-    """Boxplot of held-out R² per metabolite, one box per model for each test (random, spatial).
+    """Compare per-metabolite R² with linear central views and a full-range symlog view.
 
     Each box holds one value per metabolite: that metabolite's R² averaged over the splits of
     the test. Reads <out_dir>/<model name>/cv_feature_r2.csv for every model in the list.
-    Saves boxplot_r2.png and boxplot_summary.csv in out_dir and returns the summary table.
+    Saves central and full-range PNG/PDF figures plus the original summary table.
     """
-    from matplotlib.patches import Patch
+    from matplotlib.cbook import boxplot_stats
 
     out_dir = Path(out_dir)
     protocols_all = ["reconstruction", "random", "spatial"]
@@ -347,29 +347,42 @@ def plot_model_boxplots(out_dir: str | Path, models: list[dict]) -> pd.DataFrame
     present = [m for m in models if m["name"] in set(values["model"])]
     protocols = [p for p in protocols_all if p in set(values["protocol"])]
 
-    fig, ax = plt.subplots(figsize=(7, 5))
-    width = 0.8 / len(present)
-    for j, protocol in enumerate(protocols):
-        for i, m in enumerate(present):
-            vals = values[(values["model"] == m["name"]) & (values["protocol"] == protocol)]["r2"].to_numpy()
-            pos = j + (i - (len(present) - 1) / 2) * width
-            color = m.get("color", "#888888")
-            box = ax.boxplot(vals, positions=[pos], widths=width * 0.85, patch_artist=True,
-                             medianprops=dict(color="black"))
-            for patch in box["boxes"]:
-                patch.set(facecolor=color, alpha=0.65, edgecolor=color)
-
-    ax.axhline(0, color="gray", linestyle="--", linewidth=1)
-    ax.set_xticks(range(len(protocols)))
-    ax.set_xticklabels([protocol_labels[p] for p in protocols])
-    ax.set_xlabel("Test")
-    ax.set_ylabel("R² per metabolite (averaged over splits)")
-    ax.set_title("Held-out R² by model")
-    ax.legend(handles=[Patch(facecolor=m.get("color", "#888888"), alpha=0.65, label=m["name"])
-                       for m in present])
-    fig.tight_layout()
-    fig.savefig(out_dir / "boxplot_r2.png", dpi=300)
-    plt.close(fig)
+    for full_range in (False, True):
+        fig, axes = plt.subplots(1, len(protocols), figsize=(max(7, 3.5 * len(protocols)), 4.8), squeeze=False)
+        for ax, protocol in zip(axes[0], protocols):
+            lower, upper = 0.0, 0.0
+            for i, m in enumerate(present):
+                vals = values[(values["model"] == m["name"]) & (values["protocol"] == protocol)]["r2"].to_numpy()
+                vals = vals[np.isfinite(vals)]
+                if not len(vals):
+                    continue
+                stats = boxplot_stats(vals, whis=1.5)[0]
+                lower, upper = min(lower, stats["whislo"]), max(upper, stats["whishi"])
+                color = m.get("color", "#888888")
+                box = ax.bxp([stats], positions=[i], widths=0.55, patch_artist=True,
+                             showfliers=full_range, medianprops=dict(color="black", linewidth=1.5),
+                             flierprops=dict(marker="o", markersize=2, alpha=0.3, markeredgecolor=color))
+                box["boxes"][0].set(facecolor=color, alpha=0.65, edgecolor=color)
+            if full_range:
+                ax.set_yscale("symlog", linthresh=1)
+            else:
+                padding = max(upper - lower, 0.1) * 0.08
+                ax.set_ylim(lower - padding, upper + padding)
+            ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+            ax.set_xticks(range(len(present)))
+            ax.set_xticklabels([m["name"] for m in present])
+            ax.set_xlabel(protocol_labels[protocol])
+            ax.spines[["top", "right"]].set_visible(False)
+        axes[0, 0].set_ylabel("R² per metabolite (averaged over splits)")
+        note = ("Full range. Symmetric log scale; R² between −1 and 1 uses a linear scale."
+                if full_range else
+                "Points beyond the 1.5×IQR whiskers are hidden. All finite scores contribute to the box statistics.")
+        fig.text(0.5, 0.04, note + "\nPanels use independent y-axis ranges.", ha="center", fontsize=9)
+        fig.tight_layout(rect=(0, 0.14, 1, 1))
+        name = "boxplot_r2_full" if full_range else "boxplot_r2"
+        for extension in ("png", "pdf"):
+            fig.savefig(out_dir / f"{name}.{extension}", dpi=300)
+        plt.close(fig)
 
     summary = values.groupby(["protocol", "model"])["r2"].agg(
         n_metabolites="size",
@@ -445,3 +458,15 @@ def plot_gradient_profile(
     plt.savefig(save_path, dpi=300)
 
     plt.close()
+
+
+if __name__ == "__main__":
+    import argparse
+    import yaml
+
+    parser = argparse.ArgumentParser(description="Redraw model boxplots from saved result CSVs")
+    parser.add_argument("results_dir", type=Path)
+    args = parser.parse_args()
+    with (args.results_dir / "config.yaml").open() as f:
+        cfg = yaml.safe_load(f)
+    print(plot_model_boxplots(args.results_dir, cfg["models"]).round(3).to_string())
