@@ -5,6 +5,7 @@ model:
   n_isodepth: 3
 
 training:
+  device: cpu          # --device cuda selects a GPU
   epochs: 3000
   learning_rate: 0.001
   lasso_lambda: 0.0001
@@ -33,8 +34,14 @@ models:
   - name: metmap
     type: metmap
     color: "#2e8b57"
+
+  - name: attention
+    type: attention
+    color: "#c0392b"
     params:
-      n_features: 20
+      k: 16           # nearest training spots in learned isodepth space
+    training:
+      weight_decay: 0.01
 
 evaluation:
   test_fraction: 0.2          # random splits: fraction of spots held out

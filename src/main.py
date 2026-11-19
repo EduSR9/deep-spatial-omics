@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -27,7 +28,7 @@ from src.splits import (
     region_labels,
     spatial_folds,
 )
-from src.train import train_model
+from src.train import predict, train_model
 from src.viz import (
     plot_annotations,
     plot_gradient_profile,
@@ -39,6 +40,7 @@ from src.viz import (
 )
 
 CLI_OVERRIDES = {
+    "device": ("training", "device"),
     "model": ("model", "type"),
     "data": ("data", "filepath"),
     "n_features": ("model", "n_features"),
@@ -55,6 +57,7 @@ CLI_OVERRIDES = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="MET-MAP on BC-515")
     parser.add_argument("--config", default="config.yaml")
+    parser.add_argument("--device", choices=["cpu", "cuda"], help="Training device")
     parser.add_argument("--model", choices=MODEL_REGISTRY)
     parser.add_argument("--data", help="Override the data file in the config")
     parser.add_argument("--exp-name", default="default", help="Results go to results/<exp-name>/")
@@ -78,8 +81,9 @@ def load_config(args: argparse.Namespace) -> dict:
     # Single run with a named model (--model): use that model's entry from the "models:" list,
     # so its params and training overrides apply here too, as they do in --cv.
     # Command-line flags below still win over the config.
-    if args.model and not args.cv:
-        entry = next((m for m in cfg.get("models", []) if m["type"] == args.model), None)
+    if not args.cv:
+        model_type = args.model or cfg["model"]["type"]
+        entry = next((m for m in cfg.get("models", []) if m["type"] == model_type), None)
         if entry is not None:
             cfg["model"].update(entry.get("params") or {})
             cfg["training"].update(entry.get("training") or {})
@@ -91,6 +95,7 @@ def load_config(args: argparse.Namespace) -> dict:
 
 
 def set_deterministic(seed: int) -> None:
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     torch.manual_seed(seed)
     np.random.seed(seed)
     torch.set_num_threads(1)
@@ -174,6 +179,8 @@ def run_cv(
 def main() -> None:
     args = parse_args()
     cfg = load_config(args)
+    if cfg["training"].get("device", "cpu") == "cuda" and not torch.cuda.is_available():
+        raise SystemExit("CUDA is unavailable in this Python environment. Check the GPU node and PyTorch installation.")
     if MODEL_REGISTRY[cfg["model"]["type"]].needs_feature_subset and not cfg["model"]["n_features"]:
         raise SystemExit(f"Model '{cfg['model']['type']}' needs --n-features (start with 20).")
     out_dir = Path("results") / args.exp_name
@@ -208,15 +215,15 @@ def main() -> None:
         n_features=targets_t.shape[1],
         hidden_dim=cfg["model"]["hidden_dim"],
         n_isodepth=cfg["model"]["n_isodepth"],
+        **({"k": cfg["model"]["k"]} if "k" in cfg["model"] else {}),
     )
 
     # Train
     total_losses, l1_losses = train_model(model, coords_t, targets_t, cfg["training"])
 
     # Evaluate
-    model.eval()
-    with torch.no_grad():
-        prediction, isodepths = model(coords_t)
+    prediction, isodepths = predict(model, coords_t, cfg["training"].get("batch_size"),
+                                    reference_coords=coords_t, same_spots=True)
     prediction, isodepths = prediction.numpy(), isodepths.numpy()
     target = targets_t.numpy()
     r2 = reconstruction_r2(target, prediction)

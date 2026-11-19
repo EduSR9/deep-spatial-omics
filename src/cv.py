@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import torch
-from src.train import train_model
+from src.train import predict, train_model
 from src.evaluate import reconstruction_r2
 from src.data import preprocess_split
 
@@ -44,6 +44,8 @@ def evaluate_splits(
         torch.manual_seed(train_cfg["seed"] + i)
 
         arrays, keep = preprocess_split(coords, msi, train_idx, test_idx, model_cfg["n_features"])
+        print(f"{protocol} split {i + 1}/{len(splits)}: "
+              f"{len(train_idx)} train spots, {len(test_idx)} test spots, {len(keep)} features", flush=True)
         train_coords, test_coords, train_targets, test_targets = (
             torch.tensor(x, dtype=torch.float32) for x in arrays
         )
@@ -52,15 +54,15 @@ def evaluate_splits(
             n_features=train_targets.shape[1],
             hidden_dim=model_cfg["hidden_dim"],
             n_isodepth=model_cfg["n_isodepth"],
-            )
+            **({"k": model_cfg["k"]} if "k" in model_cfg else {}),
+        )
 
         # Train a new model
         train_model(model, train_coords, train_targets, train_cfg)
 
         # Test the model
-        model.eval()
-        with torch.no_grad():
-            predictions, _ = model(test_coords) # we discard the isodepths
+        predictions, _ = predict(model, test_coords, train_cfg.get("batch_size"),
+                                 reference_coords=train_coords, same_spots=np.array_equal(train_idx, test_idx))
 
         # Get the r2, median r2 and mse
         predictions = predictions.numpy()
