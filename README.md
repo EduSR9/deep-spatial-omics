@@ -15,22 +15,29 @@ See [SETUP.md](SETUP.md) to create the environment, download the data and run th
 ## Project layout
 
 ```text
-config.yaml          default parameters (original MET-MAP settings)
+config.yaml          default parameters (original MET-MAP settings) and the list of
+                     models compared with --cv ("models:")
 src/
   main.py            runs the full pipeline
   data.py            load BC-515, TIC normalization, standardization
-  model.py           MetMapMLP: encoder (x, y) -> isodepths, linear decoder -> metabolites
-  train.py           loss (MSE + L1 on decoder weights) and training loop
+  model.py           model classes behind a shared contract, and MODEL_REGISTRY
+                     (MetMapMLP: encoder (x, y) -> isodepths, linear decoder -> metabolites)
+  train.py           training loop shared by all models: MSE plus the model's own penalty;
+                     Adam, or AdamW when weight_decay > 0
   evaluate.py        per-metabolite R^2, scaled loadings, ranking table
   splits.py          random 80/20 repeats, spatial k-fold, Tumor/Stroma/Interface coverage
-  cv.py              fresh model per split, held-out metrics, mean and spread across runs
-  viz.py             figures
+  cv.py              fresh model per split, held-out metrics per split and per metabolite
+  viz.py             figures, including the model-comparison boxplot
   dummy_data.py      small synthetic dataset for running without the real file
 data/                put BC_515_Section_1.h5ad here (not tracked by git)
 results/             one folder per experiment (not tracked by git)
 ```
 
 Open work is marked with `# TODO` in each file.
+
+## Adding a model
+
+Only `src/model.py` and `config.yaml` change. See the instructions at the top of `src/model.py`.
 
 ## Reference
 
