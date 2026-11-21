@@ -336,6 +336,12 @@ def plot_model_boxplots(out_dir: str | Path, models: list[dict]) -> pd.DataFrame
             if sub.empty:
                 continue
             per_metabolite = sub.groupby("feature_index")["r2"].mean().dropna()
+            # Drop numerically broken values (metabolites with almost no variance in the test spots)
+            broken = per_metabolite < -10
+            if broken.any():
+                print(f"NOTE: {m['name']} / {protocol}: {int(broken.sum())} metabolites excluded "
+                      f"(R² < -10, numerically unstable)")
+            per_metabolite = per_metabolite[~broken]
             rows.append(pd.DataFrame({
                 "model": m["name"], "protocol": protocol, "r2": per_metabolite.to_numpy(),
             }))
@@ -355,16 +361,20 @@ def plot_model_boxplots(out_dir: str | Path, models: list[dict]) -> pd.DataFrame
             pos = j + (i - (len(present) - 1) / 2) * width
             color = m.get("color", "#888888")
             box = ax.boxplot(vals, positions=[pos], widths=width * 0.85, patch_artist=True,
-                             medianprops=dict(color="black"))
+                             medianprops=dict(color="black"), showfliers=False)
             for patch in box["boxes"]:
                 patch.set(facecolor=color, alpha=0.65, edgecolor=color)
 
     ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+    # Zoom to the readable range; values below the window are counted and reported in the title.
+    y_min = -2.0
+    below = int((values["r2"] < y_min).sum())
+    ax.set_ylim(y_min, 1.05)
+    ax.set_title(f"Held-out R² by model  ({below} values below {y_min} not shown)")
     ax.set_xticks(range(len(protocols)))
     ax.set_xticklabels([protocol_labels[p] for p in protocols])
     ax.set_xlabel("Test")
     ax.set_ylabel("R² per metabolite (averaged over splits)")
-    ax.set_title("Held-out R² by model")
     ax.legend(handles=[Patch(facecolor=m.get("color", "#888888"), alpha=0.65, label=m["name"])
                        for m in present])
     fig.tight_layout()
