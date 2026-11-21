@@ -20,7 +20,9 @@ def reconstruction_r2(target: np.ndarray, prediction: np.ndarray) -> np.ndarray:
     """
     SSE = np.sum((target-prediction) ** 2,axis=0)
     ss_total = np.sum((target-target.mean(axis = 0)) ** 2, axis = 0)
-    SST = np.where(ss_total == 0, np.nan, ss_total)
+    # Metabolites that barely vary in these spots give a near-zero denominator and an
+    # R^2 that explodes (e.g. -1e15). Treat them as not computable instead.
+    SST = np.where(ss_total < 1e-8, np.nan, ss_total)
     return 1 - (SSE/SST)
 
 
