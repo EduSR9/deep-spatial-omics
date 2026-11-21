@@ -34,13 +34,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import yaml
 from matplotlib.patches import Patch
 
 from src.data import load_bc515, tic_normalize
 from hmdb_candidates import hmdb_path, paper_annotation, paper_path, search_hmdb
 
 # Settings
-data_path = root / "data" / "BC_515_Section_1.h5ad"
+default_data_path = root / "data" / "BC_515_Section_1.h5ad"  # Used if the run has no config.yaml
 
 big_change = 1.0          # |Tumor - Stroma| in log scale that counts as big (1.0 is about 2.7x)
 well_explained = 0.6      # A metabolite with model R2 above this is "well explained"
@@ -55,7 +56,7 @@ class_colors = {
     "other": "#2c3e50",
     "unknown": "#bdc3c7",
 }
-lipid_names = {"PI", "PE", "PG", "PS", "PC", "PA", "CL", "LPE", "LPI", "LPC", "LPA", "LPG", "LPS",
+lipid_names = {"PI", "PE", "PG", "PS", "PC", "PA", "CL", "LPE", "LPI", "LPC", "LPA", "LPG", "LPS", "PI-Cer",
                "Cer", "SHexCer", "SM", "DG", "TG"}
 max_label = 35            # Long HMDB names are cut to this length in the plots
 
@@ -133,6 +134,7 @@ def short(name: str) -> str:
 def plot_change_vs_r2(table: pd.DataFrame, path: Path) -> None:
     """All metabolites: Tumor - Stroma difference vs model R2.
     The shaded zones are the big changes that the model explains well."""
+    table = table.dropna(subset=["model_r2"])  # Metabolites the model did not use have no R2
     diff = table["difference_tumor_minus_stroma"]
     r2 = table["model_r2"]
     big = diff.abs() >= big_change
@@ -241,6 +243,17 @@ def biology_summary(ids: pd.DataFrame) -> pd.DataFrame:
                .sort_values(["direction", "n"], ascending=[True, False]))
 
 
+def run_data_path(run: Path) -> Path:
+    """Data file used to train this run (from its config.yaml), or BC-515 if it is not there."""
+    config_path = run / "config.yaml"
+    if config_path.exists():
+        cfg = yaml.safe_load(config_path.read_text())
+        filepath = cfg.get("data", {}).get("filepath")
+        if filepath:
+            return root / filepath
+    return default_data_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Tumor vs Stroma look at one MET-MAP run")
     parser.add_argument("run", help="folder name inside results/")
@@ -252,12 +265,18 @@ def main() -> None:
         raise SystemExit(f"No outputs.npz found in {run}. Check the folder name.")
     out.mkdir(parents=True, exist_ok=True)
 
-    # 1. Load the measured data and the outputs of the trained model
-    coords, msi, annotation, mz = load_bc515(data_path)
+    # 1. Load the same data the model was trained on, and the outputs of the trained model
+    coords, msi, annotation, mz = load_bc515(run_data_path(run))
     log = tic_normalize(msi)  # Same scale used to train the model
     outputs = np.load(run / "outputs.npz")
-    r2 = outputs["r2"]
     iso = outputs["isodepths"]
+
+    # Put each R2 next to its metabolite. Models trained on fewer metabolites leave the rest
+    # empty (NaN). Old runs without feature_index used all of them.
+    used = outputs["feature_index"] if "feature_index" in outputs else np.arange(len(mz))
+    r2 = np.full(len(mz), np.nan)
+    r2[used] = outputs["r2"]
+    print(f"Model R2 available for {len(used)} of {len(mz)} metabolites")
     tumor = annotation == "Tumor"
     stroma = annotation == "Stroma"
     print(f"Tumor spots: {tumor.sum()} | Stroma spots: {stroma.sum()}")
@@ -282,6 +301,9 @@ def main() -> None:
 
     # 4. Figures
     plot_change_vs_r2(table, out / "change_vs_r2.png")
+    if len(good_ids) == 0:
+        print("No big change is well explained by this model, identity and isodepth figures skipped.")
+        return
     plot_identities(good_ids, out / "well_explained_identities.png")
     plot_isodepth_profiles(good_ids, iso, log, tumor, stroma, out / "isodepth_profiles.png")
 
