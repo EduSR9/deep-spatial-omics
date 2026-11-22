@@ -53,6 +53,7 @@ CLI_OVERRIDES = {
 
 
 def parse_args() -> argparse.Namespace:
+    """Command-line options. Every option left empty keeps the value from config.yaml."""
     parser = argparse.ArgumentParser(description="MET-MAP on BC-515")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--model", choices=MODEL_REGISTRY)
@@ -73,6 +74,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_config(args: argparse.Namespace) -> dict:
+    """Read config.yaml and apply, in this order, the model's entry from "models:" and the
+    command-line options (the last one wins)."""
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
     # Single run with a named model (--model): use that model's entry from the "models:" list,
@@ -91,6 +94,8 @@ def load_config(args: argparse.Namespace) -> dict:
 
 
 def set_deterministic(seed: int) -> None:
+    """Same seed, same result: fixes the random seeds and forces deterministic operations.
+    One thread is slower, but parallel threads can add up numbers in a different order."""
     torch.manual_seed(seed)
     np.random.seed(seed)
     torch.set_num_threads(1)
@@ -114,7 +119,7 @@ def run_cv(
     seed = cfg["training"]["seed"]
     n_spots = coords.shape[0]
 
-    # Check coverage before training, so a bad split is caught early.
+    # 1. Regions and spatial folds. Coverage is checked before training, so a bad split is caught early
     regions = region_labels(annotation, coords, eval_cfg["interface_neighbors"])
     fold_ids = spatial_folds(coords, eval_cfg["n_spatial_folds"], seed=seed)
     table = coverage_table(regions, fold_ids)
@@ -123,12 +128,14 @@ def run_cv(
         print(f"WARNING: {warning}")
     plot_spatial_folds(coords, fold_ids, regions, out_dir / "spatial_folds.png")
 
-    random = random_splits(n_spots, eval_cfg["n_random_repeats"], eval_cfg["test_fraction"], seed)
-    spatial = [
+    # 2. Train/test splits: random 80/20 repeats, and each spatial fold held out once
+    random_split_list = random_splits(n_spots, eval_cfg["n_random_repeats"], eval_cfg["test_fraction"], seed)
+    spatial_split_list = [
         (np.flatnonzero(fold_ids != k), np.flatnonzero(fold_ids == k))
         for k in range(eval_cfg["n_spatial_folds"])
     ]
 
+    # 3. Evaluate every model in the "models:" list on the same splits
     for entry in cfg["models"]:
         model_cls = MODEL_REGISTRY[entry["type"]]
         model_cfg = {**cfg["model"], **(entry.get("params") or {}), "type": entry["type"]}
@@ -140,10 +147,10 @@ def run_cv(
         print(f"\n=== {entry['name']} ===")
 
         random_results, random_features = evaluate_splits(
-            model_cls, model_cfg, train_cfg, coords, msi, mz, random, regions, "random",
+            model_cls, model_cfg, train_cfg, coords, msi, mz, random_split_list, regions, "random",
         )
         spatial_results, spatial_features = evaluate_splits(
-            model_cls, model_cfg, train_cfg, coords, msi, mz, spatial, regions, "spatial",
+            model_cls, model_cfg, train_cfg, coords, msi, mz, spatial_split_list, regions, "spatial",
         )
         results = pd.concat([random_results, spatial_results], ignore_index=True)
         results.to_csv(model_dir / "cv_results.csv", index=False)
@@ -164,6 +171,7 @@ def run_cv(
         )
         recon_features.to_csv(model_dir / "reconstruction_r2.csv", index=False)
 
+    # 4. One boxplot comparing all the models
     summary_all = plot_model_boxplots(out_dir, cfg["models"])
     if len(summary_all):
         print("\nHeld-out R² per metabolite, by model:")
@@ -183,7 +191,7 @@ def main() -> None:
 
     set_deterministic(cfg["training"]["seed"])
 
-    # Data
+    # 1. Data (synthetic with --dummy). With --cv, the evaluation protocol takes over from here
     if args.dummy:
         coords, msi, annotation, mz = create_dummy_bc515()
     else:
@@ -192,6 +200,7 @@ def main() -> None:
         run_cv(cfg, out_dir, coords, annotation, msi, mz)
         return
 
+    # 2. Preprocess: TIC normalization, optional top-n metabolites, standardization
     msi_log = tic_normalize(msi)
     n_features = cfg["model"]["n_features"]
     keep = np.arange(len(mz))
@@ -202,7 +211,7 @@ def main() -> None:
     targets_t = torch.tensor(standardize(msi_log), dtype=torch.float32)
     print(f"Spots: {coords_t.shape[0]} | metabolites: {targets_t.shape[1]}")
 
-    # Model
+    # 3. Model
     model_cls = MODEL_REGISTRY[cfg["model"]["type"]]
     model = model_cls(
         n_features=targets_t.shape[1],
@@ -210,10 +219,10 @@ def main() -> None:
         n_isodepth=cfg["model"]["n_isodepth"],
     )
 
-    # Train
+    # 4. Train on all spots
     total_losses, l1_losses = train_model(model, coords_t, targets_t, cfg["training"])
 
-    # Evaluate
+    # 5. Evaluate on the same spots (reconstruction R2), loadings and ranking
     model.eval()
     with torch.no_grad():
         prediction, isodepths = model(coords_t)
@@ -230,7 +239,7 @@ def main() -> None:
     ranking["original_feature_index"] = keep[ranking["feature_index"].to_numpy()]
     final_mse = float(np.mean((prediction - target) ** 2))
 
-    # Save
+    # 6. Save tables, outputs and the trained weights
     ranking.to_csv(out_dir / "metabolite_ranking.csv", index=False)
     np.savez_compressed(
         out_dir / "outputs.npz",
@@ -244,7 +253,7 @@ def main() -> None:
                "median_r2": float(np.nanmedian(r2))}
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
 
-    # Plots
+    # 7. Figures
     top_idx = ranking["feature_index"].to_numpy()[:3]
     plot_annotations(coords, annotation, out_dir / "annotations.png")
     plot_training_loss(total_losses, l1_losses, out_dir / "training_loss.png")

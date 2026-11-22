@@ -7,7 +7,8 @@ import pandas as pd
 
 
 def reconstruction_r2(target: np.ndarray, prediction: np.ndarray) -> np.ndarray:
-    """In-sample R^2 = 1 - SSE/SST for each metabolite (negative values kept).
+    """R^2 = 1 - SSE/SST for each metabolite, on whatever spots are passed (all spots for
+    reconstruction, test spots in cv.py). Negative values are kept.
 
     Parameters
     ----------
@@ -16,14 +17,15 @@ def reconstruction_r2(target: np.ndarray, prediction: np.ndarray) -> np.ndarray:
     Returns
     -------
     np.ndarray, shape (n_features,)
-        NaN where a feature has zero variance.
+        NaN when a metabolite barely varies in those spots (SST < 1e-8).
     """
-    SSE = np.sum((target-prediction) ** 2,axis=0)
-    ss_total = np.sum((target-target.mean(axis = 0)) ** 2, axis = 0)
+    sse = np.sum((target - prediction) ** 2, axis=0)
+    sst = np.sum((target - target.mean(axis=0)) ** 2, axis=0)
     # Metabolites that barely vary in these spots give a near-zero denominator and an
-    # R^2 that explodes (e.g. -1e15). Treat them as not computable instead.
-    SST = np.where(ss_total < 1e-8, np.nan, ss_total)
-    return 1 - (SSE/SST)
+    # R^2 that explodes (e.g. -1e15). The data is standardized (variance about 1 per spot),
+    # so 1e-8 only catches metabolites that are practically constant. Treat them as not computable.
+    sst = np.where(sst < 1e-8, np.nan, sst)
+    return 1 - sse / sst
 
 
 def scaled_loadings(weights: np.ndarray, isodepths: np.ndarray) -> np.ndarray:
@@ -38,8 +40,9 @@ def scaled_loadings(weights: np.ndarray, isodepths: np.ndarray) -> np.ndarray:
     -------
     np.ndarray, shape (n_features, n_isodepth)
     """
-    # Multiplying the absolute values of the weight by each isodepth std
-    return np.abs(weights) * isodepths.std(axis=0, ddof=0) 
+    # The scale of each isodepth is arbitrary: a decoder weight only means something
+    # together with how much its isodepth varies, so both are multiplied
+    return np.abs(weights) * isodepths.std(axis=0, ddof=0)
 
 
 def rank_metabolites(mz: np.ndarray, r2: np.ndarray, loadings: np.ndarray | None) -> pd.DataFrame:

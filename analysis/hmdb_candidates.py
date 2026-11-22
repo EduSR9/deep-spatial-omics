@@ -42,35 +42,37 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-root = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent
 
 # Settings
-hmdb_path = root / "data" / "hmdb_compact.csv"
-paper_path = root / "data" / "annotation_reference_table1.csv"
+HMDB_PATH = ROOT / "data" / "hmdb_compact.csv"
+PAPER_PATH = ROOT / "data" / "annotation_reference_table1.csv"
 
-big_change = 1.0          # Same threshold as tumor_stroma.py
-tol_ppm = 10              # Normal search window: mass error up to 10 parts per million
-max_ppm = 50              # If nothing is found within tol_ppm, search up to this error...
-n_wide = 3                # ...and show only the 3 closest, marked as uncertain
-top_per_metabolite = 8    # Rows per metabolite in the HTML (the CSV keeps all of them)
+BIG_CHANGE = 1.0          # |Tumor - Stroma| in log scale that counts as big (1.0 is about 2.7x), also used by tumor_stroma.py
+TOL_PPM = 10              # Normal search window: mass error up to 10 parts per million
+MAX_PPM = 50              # If nothing is found within TOL_PPM, search up to this error...
+N_WIDE = 3                # ...and show only the 3 closest, marked as uncertain
+TOP_PER_METABOLITE = 8    # Rows per metabolite in the HTML (the CSV keeps all of them)
 
 # Ion types (adducts) in negative mode: neutral mass = m/z + shift.
 # These two cover 152 of the 159 annotations in the paper.
 #   [M-H]-  the molecule lost a proton, so we add its mass back
 #   [M+Cl]- the molecule picked up a chloride, so we remove its mass
-adducts = {"[M-H]-": 1.007276, "[M+Cl]-": -34.969402}
+ADDUCTS = {"[M-H]-": 1.007276, "[M+Cl]-": -34.969402}
 
-# Order of trust for the HMDB status: measured in humans first, predicted last
-status_rank = {"quantified": 0, "detected": 1, "expected": 2, "predicted": 2}
+# Order of trust for the HMDB status: measured in humans first, predicted last.
+# A status that is missing or not in this list goes last (rank 3)
+STATUS_RANK = {"quantified": 0, "detected": 1, "expected": 2, "predicted": 2}
 
 
 def paper_annotation(mz: float, paper: pd.DataFrame | None) -> dict | None:
-    """Annotation of the closest paper peak if it is within tol_ppm, else None."""
+    """Annotation of the closest paper peak if it is within TOL_PPM, else None."""
     if paper is None:
         return None
+    # ppm = mass error relative to the mass, in parts per million
     ppm = np.abs(paper["Observed m/z"].to_numpy() - mz) / mz * 1e6
     closest = int(np.argmin(ppm))
-    if ppm[closest] > tol_ppm:
+    if ppm[closest] > TOL_PPM:
         return None
     row = paper.iloc[closest]
     return {
@@ -85,33 +87,34 @@ def search_hmdb(mz: float, hmdb: pd.DataFrame) -> pd.DataFrame:
     """HMDB compounds whose mass fits this m/z with any of the adducts."""
     # 1. Mass error to every HMDB compound, for each adduct
     hits = []
-    for adduct, shift in adducts.items():
+    for adduct, shift in ADDUCTS.items():
         neutral = mz + shift
         ppm = np.abs(hmdb["monoisotopic_mass"].to_numpy() - neutral) / neutral * 1e6
-        keep = ppm <= max_ppm
+        keep = ppm <= MAX_PPM
         found = hmdb[keep].copy()
         found["adduct"] = adduct
         found["ion_mz"] = found["monoisotopic_mass"] - shift  # m/z this compound would give
         found["ppm"] = ppm[keep].round(2)
         hits.append(found)
     hits = pd.concat(hits, ignore_index=True)
-    hits["status_rank"] = hits["status"].map(status_rank).fillna(3)
+    hits["status_rank"] = hits["status"].map(STATUS_RANK).fillna(3)
 
-    # 2. Within tol_ppm: measured compounds first, then smallest error
-    close = hits[hits["ppm"] <= tol_ppm].copy()
+    # 2. Within TOL_PPM: measured compounds first, then smallest error
+    close = hits[hits["ppm"] <= TOL_PPM].copy()
     if len(close):
         close["wide_match"] = False
         return close.sort_values(["status_rank", "ppm"])
 
-    # 3. Nothing close: the n_wide closest up to max_ppm, marked as uncertain
-    wide = hits.nsmallest(n_wide, "ppm").copy()
+    # 3. Nothing close: the N_WIDE closest up to MAX_PPM, marked as uncertain
+    wide = hits.nsmallest(N_WIDE, "ppm").copy()
     wide["wide_match"] = True
     return wide.sort_values("ppm")
 
 
 def matches_paper(cand: pd.DataFrame, ann: dict | None) -> pd.Series:
     """Same adduct and ion mass (within 3 ppm) as the paper. Compared by mass because the
-    paper's formula column mixes ion and neutral formulas."""
+    paper's formula column mixes ion and neutral formulas. 3 ppm is stricter than TOL_PPM
+    because both masses are theoretical, so the same compound gives almost exactly the same value."""
     if ann is None:
         return pd.Series(False, index=cand.index)
     same_adduct = cand["adduct"] == ann["ion"]
@@ -134,7 +137,7 @@ def html_section(rank: int, mz: float, diff: float, r2: float, cand: pd.DataFram
                       f"({html.escape(ann['ion'])}, {html.escape(ann['type'])}) - {verdict}")
 
     # Candidates that match the paper go first so they are always shown
-    shown = pd.concat([cand[cand["matches_paper"]], cand[~cand["matches_paper"]]]).head(top_per_metabolite)
+    shown = pd.concat([cand[cand["matches_paper"]], cand[~cand["matches_paper"]]]).head(TOP_PER_METABOLITE)
     rows_html = ""
     for c in shown.itertuples():
         css = "match" if c.matches_paper else ("wide" if c.wide_match else "")
@@ -150,9 +153,9 @@ def html_section(rank: int, mz: float, diff: float, r2: float, cand: pd.DataFram
     else:
         table_html = "<p>No HMDB candidate within tolerance.</p>"
     more = (f"<p class='note'>{len(cand)} candidates in total (see CSV).</p>"
-            if len(cand) > top_per_metabolite else "")
-    wide_note = (f"<p class='note'>No candidate within {tol_ppm} ppm: the {len(cand)} closest up to "
-                 f"{max_ppm} ppm are shown (<span class='wide'>uncertain</span>).</p>" if wide else "")
+            if len(cand) > TOP_PER_METABOLITE else "")
+    wide_note = (f"<p class='note'>No candidate within {TOL_PPM} ppm: the {len(cand)} closest up to "
+                 f"{MAX_PPM} ppm are shown (<span class='wide'>uncertain</span>).</p>" if wide else "")
     return f"<h3>{head}</h3><p>{paper_line}</p>{wide_note}{table_html}{more}"
 
 
@@ -165,9 +168,9 @@ def write_report(path: Path, run: str, sections: list[str], n_selected: int, n_w
                          f"(<span class='match'>green rows</span>).</p>")
     else:
         paper_summary = "<p>No paper reference found: paper comparison skipped.</p>"
-    summary = (f"<p>{n_selected} metabolites with a big change (|log difference| &gt;= {big_change}). "
-               f"{n_with_candidates} have at least one HMDB candidate within {tol_ppm} ppm; "
-               f"{n_wide_only} only have wider matches ({tol_ppm}-{max_ppm} ppm, "
+    summary = (f"<p>{n_selected} metabolites with a big change (|log difference| &gt;= {BIG_CHANGE}). "
+               f"{n_with_candidates} have at least one HMDB candidate within {TOL_PPM} ppm; "
+               f"{n_wide_only} only have wider matches ({TOL_PPM}-{MAX_PPM} ppm, "
                f"<span class='wide'>uncertain</span>).</p>{paper_summary}")
 
     page = f"""<!doctype html><html><head><meta charset="utf-8"><title>HMDB candidates - {html.escape(run)}</title>
@@ -183,7 +186,7 @@ th {{ background: #f5f5f5; }}
 </style></head><body>
 <h1>HMDB candidates - {html.escape(run)}</h1>
 {summary}
-<p class="warn">Candidates are mass matches (negative mode, {', '.join(adducts)}, up to {tol_ppm} ppm), not identifications.
+<p class="warn">Candidates are mass matches (negative mode, {', '.join(ADDUCTS)}, up to {TOL_PPM} ppm), not identifications.
 Order: measured compounds first (quantified, detected), then predicted ones, then smallest mass error.</p>
 <h3>How to read the tables</h3>
 <ul class="note">
@@ -203,7 +206,7 @@ see hmdb.ca for the exact definitions):
 <li><b>Class</b>: chemical class of the candidate, from the HMDB taxonomy.</li>
 <li><span class="match">Green rows</span>: same adduct and ion mass (within 3 ppm) as the paper's annotation.
 Several green rows can appear because HMDB lists isomers with the same mass.</li>
-<li><span class="wide">Orange rows</span>: no candidate within {tol_ppm} ppm, so the closest ones up to {max_ppm} ppm
+<li><span class="wide">Orange rows</span>: no candidate within {TOL_PPM} ppm, so the closest ones up to {MAX_PPM} ppm
 are shown. Treat them as uncertain.</li>
 </ul>
 {''.join(sections)}
@@ -223,25 +226,25 @@ def main() -> None:
     parser.add_argument("run", help="folder name inside results/biology/")
     args = parser.parse_args()
 
-    out = root / "results" / "biology" / args.run
+    out = ROOT / "results" / "biology" / args.run
     table_path = out / "tumor_stroma_table.csv"
-    for p in (hmdb_path, table_path):
+    for p in (HMDB_PATH, table_path):
         if not p.exists():
             raise SystemExit(f"Missing {p}. See the usage at the top of this file.")
 
     # 1. Load HMDB, the paper's annotations (optional) and the Tumor vs Stroma table
-    hmdb = pd.read_csv(hmdb_path, low_memory=False)
-    paper = pd.read_csv(paper_path) if paper_path.exists() else None
+    hmdb = pd.read_csv(HMDB_PATH, low_memory=False)
+    paper = pd.read_csv(PAPER_PATH) if PAPER_PATH.exists() else None
     if paper is None:
-        print(f"No paper reference at {paper_path}, paper comparison skipped.")
+        print(f"No paper reference at {PAPER_PATH}, paper comparison skipped.")
     table = pd.read_csv(table_path)
 
     # 2. Keep the big changes, biggest first (rank 1 = biggest change, either direction)
-    selected = table[table["difference_tumor_minus_stroma"].abs() >= big_change]
+    selected = table[table["difference_tumor_minus_stroma"].abs() >= BIG_CHANGE]
     selected = selected.reindex(selected["difference_tumor_minus_stroma"].abs()
                                 .sort_values(ascending=False).index)
-    print(f"Searching HMDB for {len(selected)} big-change metabolites ({tol_ppm} ppm, widened to "
-          f"{max_ppm} ppm when needed; {', '.join(adducts)})")
+    print(f"Searching HMDB for {len(selected)} big-change metabolites ({TOL_PPM} ppm, widened to "
+          f"{MAX_PPM} ppm when needed; {', '.join(ADDUCTS)})")
 
     all_candidates, sections = [], []
     n_with_candidates = n_wide_only = n_paper = n_agree = 0
@@ -251,7 +254,7 @@ def main() -> None:
 
         # 3. Search HMDB
         cand = search_hmdb(mz, hmdb)
-        wide = bool(len(cand)) and bool(cand["wide_match"].iloc[0])
+        wide = bool(len(cand)) and bool(cand["wide_match"].iloc[0])  # Only wider (uncertain) matches
         # 4. Compare with the paper
         ann = paper_annotation(mz, paper)
         cand["matches_paper"] = matches_paper(cand, ann)
@@ -264,7 +267,6 @@ def main() -> None:
             n_with_candidates += 1
         if wide:
             n_wide_only += 1
-
 
         sections.append(html_section(rank, mz, diff, r2, cand, ann, agree, wide))
         cand.insert(0, "query_mz", mz)

@@ -310,7 +310,8 @@ def plot_top_metabolites(
 
 
 def plot_model_boxplots(out_dir: str | Path, models: list[dict]) -> pd.DataFrame:
-    """Boxplot of held-out R² per metabolite, one box per model for each test (random, spatial).
+    """Boxplot of R² per metabolite, one box per model for each test: reconstruction
+    (in-sample), random and spatial (held-out).
 
     Each box holds one value per metabolite: that metabolite's R² averaged over the splits of
     the test. Reads <out_dir>/<model name>/cv_feature_r2.csv for every model in the list.
@@ -336,7 +337,8 @@ def plot_model_boxplots(out_dir: str | Path, models: list[dict]) -> pd.DataFrame
             if sub.empty:
                 continue
             per_metabolite = sub.groupby("feature_index")["r2"].mean().dropna()
-            # Drop numerically broken values (metabolites with almost no variance in the test spots)
+            # Drop numerically broken values (metabolites with almost no variance in the test
+            # spots): their tiny SST makes R2 explode, which says nothing about the model.
             broken = per_metabolite < -10
             if broken.any():
                 print(f"NOTE: {m['name']} / {protocol}: {int(broken.sum())} metabolites excluded "
@@ -366,7 +368,8 @@ def plot_model_boxplots(out_dir: str | Path, models: list[dict]) -> pd.DataFrame
                 patch.set(facecolor=color, alpha=0.65, edgecolor=color)
 
     ax.axhline(0, color="gray", linestyle="--", linewidth=1)
-    # Zoom to the readable range; values below the window are counted and reported in the title.
+    # Zoom to the readable range: from -2 (clearly worse than predicting the mean) up to just
+    # above the maximum R2 of 1. Values below the window are counted and reported in the title.
     y_min = -2.0
     below = int((values["r2"] < y_min).sum())
     ax.set_ylim(y_min, 1.05)

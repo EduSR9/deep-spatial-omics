@@ -18,25 +18,26 @@ def random_splits(
     -------
     list of (train_idx, test_idx) pairs, each an np.ndarray of spot indices.
     """
-    n_test = round(n_spots*test_fraction)
+    n_test = round(n_spots * test_fraction)
 
     splits = []
-    # Run n_repeats
     for r in range(n_repeats):
-        rng = np.random.default_rng(seed + r) # Getting a random seed
-        perm = rng.permutation(n_spots) # Permutation
+        # seed + r: every repeat shuffles differently, and the same seed gives the same splits
+        rng = np.random.default_rng(seed + r)
+        perm = rng.permutation(n_spots)
         train_idx = perm[n_test:]
         test_idx = perm[:n_test]
-        splits.append((np.sort(train_idx),np.sort(test_idx)))
+        splits.append((np.sort(train_idx), np.sort(test_idx)))
 
-    return(splits)
+    return splits
 
 
 def spatial_folds(coords: np.ndarray, n_folds: int = 5, seed: int = 0, n_iter: int = 100) -> np.ndarray:
     """Assign each spot to a spatial block with k-means on (x, y).
 
     Each fold is a contiguous patch of tissue, so a held-out fold tests prediction
-    in an area the model never saw.
+    in an area the model never saw. k-means is written here to avoid adding scikit-learn
+    as a dependency. n_iter is only a maximum: the loop stops as soon as the centers stop moving.
 
     Returns
     -------
@@ -44,26 +45,35 @@ def spatial_folds(coords: np.ndarray, n_folds: int = 5, seed: int = 0, n_iter: i
     """
     n_spots = coords.shape[0]
     rng = np.random.default_rng(seed)
-    initial_indices = rng.choice(n_spots, size = n_folds, replace=False)
+
+    # 1. Start from n_folds random spots as centers
+    initial_indices = rng.choice(n_spots, size=n_folds, replace=False)
     centers = coords[initial_indices]
+
     for _ in range(n_iter):
-        # Measuring the distance of every point to c (centers)
-        dist = np.array([np.linalg.norm(coords - c, axis = 1) for c in centers])
-        labels = np.argmin(dist, axis = 0)
+        # 2. Assign every spot to its closest center
+        dist = np.array([np.linalg.norm(coords - c, axis=1) for c in centers])
+        labels = np.argmin(dist, axis=0)
+
+        # 3. Move each center to the mean of its spots (an empty fold keeps its old center)
         new_centers = np.empty_like(centers)
         for k in range(n_folds):
             new_centers[k] = coords[labels == k].mean(axis=0) if np.any(labels == k) else centers[k]
+
+        # 4. Stop when nothing moves anymore
         if np.array_equal(new_centers, centers):
             break
         centers = new_centers
-    return(labels)
+    return labels
 
 
 def region_labels(annotation: np.ndarray, coords: np.ndarray, n_neighbors: int = 6) -> np.ndarray:
     """Tumor, Stroma, Interface or Unlabelled for each spot.
 
-    A Tumor or Stroma spot is "Interface" if at least one of its n_neighbors nearest
-    spots carries the other label. Used for coverage checks only, never for training.
+    A Stroma spot becomes "Interface" if at least one of its n_neighbors nearest spots is
+    Tumor. Only Stroma spots change, so the interface is one spot thick and Tumor spots
+    keep their label. The default of 6 is the number of direct neighbours in the hexagonal
+    spot grid. Used for coverage checks only, never for training.
 
     Returns
     -------
@@ -71,25 +81,21 @@ def region_labels(annotation: np.ndarray, coords: np.ndarray, n_neighbors: int =
     """
     result = annotation.copy()
 
-    for i in range(len(coords)):
-        curr_spot = coords[i]
+    # 1. Distances between all pairs of spots, computed once
+    dist = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=2)
 
-        # 1. Calculate distances and neighbors for each point
-        dist = np.array(np.linalg.norm(coords - curr_spot, axis = 1))
-        sort_dist = np.argsort(dist)
-        neighbors_idx = sort_dist[1:n_neighbors + 1]
+    # 2. The n_neighbors closest spots of each spot (position 0 is the spot itself)
+    neighbors_idx = np.argsort(dist, axis=1)[:, 1:n_neighbors + 1]
 
-        # 2. Check tags with the original tags
-        for j in neighbors_idx:
-            if annotation[i] == "Stroma" and annotation[j] == "Tumor":
-                result[i] = "Interface"
-                break
+    # 3. A Stroma spot with at least one Tumor neighbour becomes Interface
+    has_tumor_neighbor = (annotation[neighbors_idx] == "Tumor").any(axis=1)
+    result[(annotation == "Stroma") & has_tumor_neighbor] = "Interface"
     return result
 
 
 def coverage_table(regions: np.ndarray, fold_ids: np.ndarray) -> pd.DataFrame:
     """Spot counts per region in each fold. Rows are folds, columns are regions."""
-    return pd.crosstab(index=fold_ids, columns = regions)
+    return pd.crosstab(index=fold_ids, columns=regions)
 
 
 def coverage_warnings(table: pd.DataFrame, min_fraction: float = 0.5) -> list[str]:
@@ -104,23 +110,21 @@ def coverage_warnings(table: pd.DataFrame, min_fraction: float = 0.5) -> list[st
     regions = ["Tumor", "Stroma", "Interface"]
 
     for region in regions:
-        # 1. Total spots of that region
+        # 1. Spots of this region in each fold
         if region in table.columns:
             counts = table[region]
         else:
             counts = pd.Series(0, index=table.index)
 
         total = counts.sum()
-
         if total == 0:
             warnings.append(f"The region {region} has no spots.")
             continue
 
-        expected = total/n_folds
-        umbral = min_fraction * expected
-    
+        # 2. Flag the folds below min_fraction of an even split
+        threshold = min_fraction * total / n_folds
         for fold_id, count in counts.items():
-            if count < umbral:
+            if count < threshold:
                 warnings.append(f"Fold {fold_id} is under-represented for region {region}")
 
     return warnings

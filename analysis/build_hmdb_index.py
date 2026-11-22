@@ -20,10 +20,10 @@ import csv
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-root = Path(__file__).resolve().parent.parent
-xml_path = root / "data" / "hmdb_metabolites.xml"
-out_path = root / "data" / "hmdb_compact.csv"
-ns = "{http://www.hmdb.ca}"
+ROOT = Path(__file__).resolve().parent.parent
+XML_PATH = ROOT / "data" / "hmdb_metabolites.xml"
+OUT_PATH = ROOT / "data" / "hmdb_compact.csv"
+NS = "{http://www.hmdb.ca}"
 
 
 def text(elem: ET.Element, path: str) -> str:
@@ -42,25 +42,25 @@ def main() -> None:
         "formula": "chemical_formula",
         "monoisotopic_mass": "monisotopic_molecular_weight",
         "status": "status",
-        "class": f"taxonomy/{ns}class",
-        "sub_class": f"taxonomy/{ns}sub_class",
+        "class": f"taxonomy/{NS}class",
+        "sub_class": f"taxonomy/{NS}sub_class",
     }
 
     n_read = 0
-    with open(out_path, "w", newline="") as f:
+    with open(OUT_PATH, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(fields)
 
         # 2. Read the XML in pieces, because the whole file does not fit in memory
-        context = ET.iterparse(xml_path, events=("start", "end"))
+        context = ET.iterparse(XML_PATH, events=("start", "end"))
         _, doc_root = next(context)
         for event, elem in context:
-            if event != "end" or elem.tag != f"{ns}metabolite":
+            if event != "end" or elem.tag != f"{NS}metabolite":
                 continue
 
             # 3. Take the fields we want and write them, skipping compounds without a mass
-            values = [text(elem, f"{ns}{tag}") for tag in fields.values()]
-            if values[3]:
+            values = [text(elem, f"{NS}{tag}") for tag in fields.values()]
+            if values[3]:  # values[3] is the mass: without it the compound cannot be searched
                 writer.writerow(values)
 
             # 4. Free the memory of what was already written
@@ -69,7 +69,7 @@ def main() -> None:
             if n_read % 20000 == 0:
                 print(f"{n_read} metabolites read", flush=True)
 
-    print(f"Done: {n_read} metabolites -> {out_path}")
+    print(f"Done: {n_read} metabolites -> {OUT_PATH}")
 
 
 if __name__ == "__main__":
