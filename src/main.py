@@ -236,6 +236,7 @@ def main() -> None:
         out_dir / "outputs.npz",
         coords=coords, mz=mz, isodepths=isodepths,
         reconstruction=prediction, r2=r2, total_loss=total_losses,
+        feature_index=keep,  # Which metabolites of the dataset the model used
         **linear_outputs,
     )
     torch.save(model.state_dict(), out_dir / "model_state_dict.pt")

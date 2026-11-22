@@ -73,3 +73,31 @@ See the top of `src/model.py`. Test with:
 ```bash
 python src/main.py --dummy --cv --exp-name test_cv
 ```
+
+## 4. Biology analysis
+
+Needs a single run (not `--cv`) on the real data, for example `results/baseline/`.
+The HMDB table and the paper annotations are already in `data/`, so nothing else has to be
+downloaded.
+
+```bash
+python analysis/tumor_stroma.py baseline       # figures and tables
+python analysis/hmdb_candidates.py baseline    # HTML report with all HMDB candidates (run after the line above)
+```
+
+Both write to `results/biology/<exp-name>/`:
+
+- `change_vs_r2.png`: every metabolite, Tumor - Stroma difference vs model R2.h
+- `well_explained_identities.png`: the big changes the model explains well (R2 > 0.6), wit
+  their likely identity and chemical class.
+- `isodepth_profiles.png`: those metabolites along the isodepth that best follows Tumor/Stroma.
+- `big_change_identities.csv`, `biology_summary.csv`, `tumor_stroma_table.csv`.
+- `hmdb_report.html`, `hmdb_candidates.csv`: all HMDB candidates for each big change.
+
+Names without a mark come from the paper; `?` is an HMDB mass match within 10 ppm and `??`
+only within 50 ppm. They are mass matches, not identifications. Runs trained on fewer
+metabolites (`n_features`) also work: metabolites the model did not use have no R2.
+
+`data/hmdb_compact.csv` only has to be rebuilt for a new HMDB version: download
+`hmdb_metabolites.xml` (about 6.5 GB) from hmdb.ca into `data/` and run
+`python analysis/build_hmdb_index.py`.
