@@ -49,6 +49,7 @@ WELL_EXPLAINED = 0.6      # A metabolite with model R2 above this is "well expla
 N_BINS = 20               # Number of columns in the isodepth heatmap
 
 TUMOR_COLOR = "#c0392b"
+STROMA_COLOR = "#2c6fbb"
 GOOD_COLOR = "#2e8b57"    # Green for "well explained"
 # One color per chemical class in the figures
 CLASS_COLORS = {
@@ -168,24 +169,41 @@ def plot_change_vs_r2(table: pd.DataFrame, path: Path) -> None:
 
 
 def plot_identities(ids: pd.DataFrame, path: Path) -> None:
-    """Zoom on the well explained big changes: one row each, sorted by the difference,
-    labeled with its identity and colored by chemical class."""
-    ids = ids.sort_values("difference_tumor_minus_stroma")
-    colors = [CLASS_COLORS[c] for c in ids["chemical_class"]]
+    """Names of the well explained big changes in two columns, higher in Tumor on the left and
+    higher in Stroma on the right. Sorted by the size of the change and colored by chemical class.
+    Wide format so the names stay readable on a slide."""
+    sides = [("Higher in tumor", ids[ids["difference_tumor_minus_stroma"] > 0], TUMOR_COLOR),
+             ("Higher in stroma", ids[ids["difference_tumor_minus_stroma"] < 0], STROMA_COLOR)]
+    fig, axes = plt.subplots(1, 2, figsize=(21, 11.2), gridspec_kw={"wspace": 0.75})
 
-    fig, ax = plt.subplots(figsize=(7, 0.18 * len(ids) + 1.5))
-    y = np.arange(len(ids))
-    ax.hlines(y, 0, ids["difference_tumor_minus_stroma"], color=colors, linewidth=1)
-    ax.scatter(ids["difference_tumor_minus_stroma"], y, c=colors, s=25, zorder=3)
-    ax.axvline(0, color="gray", linewidth=0.8)
-    ax.set_yticks(y)
-    ax.set_yticklabels([short(n) for n in ids["identity"]], fontsize=6)
-    ax.set_xlabel("Tumor - Stroma (median log intensity)")
+    for ax, (title, side, title_color) in zip(axes, sides):
+        ax.set_title(f"{title}  ({len(side)})", fontsize=22, color=title_color, weight="bold", pad=12)
+        if side.empty:
+            ax.axis("off")
+            continue
+        # Biggest change at the top
+        side = side.reindex(side["difference_tumor_minus_stroma"].abs().sort_values().index)
+        y = np.arange(len(side))
+        size = side["difference_tumor_minus_stroma"].abs()
+        colors = [CLASS_COLORS[c] for c in side["chemical_class"]]
+        ax.hlines(y, 0, size, color=colors, linewidth=2)
+        ax.scatter(size, y, c=colors, s=70, zorder=3)
+        ax.set_yticks(y)
+        ax.set_yticklabels([short(n) for n in side["identity"]], fontsize=13 if len(side) > 25 else 15)
+        for tick, chem in zip(ax.get_yticklabels(), side["chemical_class"]):
+            tick.set_color(CLASS_COLORS[chem] if chem != "unknown" else "#7f8c8d")  # Light gray is hard to read
+        ax.set_ylim(-0.8, len(side) - 0.2)
+        ax.set_xlim(0, ids["difference_tumor_minus_stroma"].abs().max() * 1.05)
+        ax.set_xlabel("|Tumor - Stroma| (median log intensity)", fontsize=14)
+        ax.spines[["top", "right"]].set_visible(False)
+
     present = [c for c in CLASS_COLORS if c in set(ids["chemical_class"])]
-    ax.legend(handles=[Patch(color=CLASS_COLORS[c], label=c) for c in present],
-              loc="lower right", fontsize=7)
-    fig.tight_layout()
-    fig.savefig(path, dpi=200)
+    fig.legend(handles=[Patch(color=CLASS_COLORS[c], label=c) for c in present], loc="lower center",
+               ncol=len(present), fontsize=15, frameon=False)
+    fig.text(0.5, 0.045, "?  = HMDB mass match within 10 ppm      ??  = only within 50 ppm      "
+             "no mark = name from the original paper", ha="center", fontsize=14, color="#555555")
+    fig.subplots_adjust(left=0.2, right=0.97, top=0.93, bottom=0.14)
+    fig.savefig(path, dpi=170)
     plt.close(fig)
 
 
