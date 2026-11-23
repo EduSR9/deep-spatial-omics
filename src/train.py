@@ -6,13 +6,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from src.model import AttentionMetMap
+
 
 def make_optimizer(model: nn.Module, cfg: dict) -> torch.optim.Optimizer:
-    """Adam, or AdamW when weight_decay > 0.
-
-    With AdamW, weight decay applies to weight matrices only, not to biases or norm layers.
-    With weight_decay = 0 this is plain Adam, which is what the MET-MAP reference uses.
-    """
+    # AdamW applies weight decay to weight matrices only.
     weight_decay = cfg.get("weight_decay", 0.0)
     if weight_decay > 0:
         return torch.optim.AdamW([
@@ -28,12 +26,9 @@ def train_model(
     targets: torch.Tensor,
     cfg: dict,
 ) -> tuple[np.ndarray, np.ndarray | None]:
-    """Train a fresh model on preprocessed training spots only.
-
-    The loss is the mean squared error plus the model's own penalty, if it has one.
-    Returns the total loss per epoch and the penalty per epoch (None if the model has none).
-    """
-    model.train()
+    # Keep the shared full-batch MSE, penalty and update sequence.
+    device = torch.device(cfg.get("device", "cpu"))
+    model.to(device).train()
     optimizer = make_optimizer(model, cfg)
     scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=1, end_factor=cfg["lr_end_factor"],
@@ -43,12 +38,17 @@ def train_model(
     penalty_losses = np.zeros(cfg["epochs"])
     has_penalty = False
     # Match the reference input-gradient path.
-    coords = coords.detach().clone().requires_grad_(True)
+    coords = coords.detach().clone().to(device).requires_grad_(True)
+    targets = targets.to(device)
+    self_indices = torch.arange(len(coords), device=device) if isinstance(model, AttentionMetMap) else None
 
     for epoch in range(cfg["epochs"]):
         optimizer.zero_grad()
         coords.grad = None
-        prediction, _ = model(coords)
+        if isinstance(model, AttentionMetMap):
+            prediction, _ = model(coords, coords.detach(), self_indices)
+        else:
+            prediction, _ = model(coords)
         mse = nn.functional.mse_loss(prediction, targets, reduction="mean")
         penalty = model.penalty(cfg["lasso_lambda"])
         if penalty is None:
@@ -65,3 +65,18 @@ def train_model(
             print(f"Epoch {epoch + 1}: total={total.item():.6f}, MSE={mse.item():.6f}", flush=True)
 
     return total_losses, (penalty_losses if has_penalty else None)
+
+
+@torch.no_grad()
+def predict(model, coords, *, reference_coords=None, same_spots=False):
+    # Reuse training references and return predictions on the CPU.
+    model.eval()
+    device = next(model.parameters()).device
+    coords = coords.to(device)
+    if isinstance(model, AttentionMetMap):
+        reference_coords = reference_coords.to(device)
+        self_indices = torch.arange(len(coords), device=device) if same_spots else None
+        prediction, isodepths = model(coords, reference_coords, self_indices)
+    else:
+        prediction, isodepths = model(coords)
+    return prediction.cpu(), isodepths.cpu()
