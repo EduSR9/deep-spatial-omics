@@ -56,29 +56,36 @@ class AttentionMetMap(MetMapMLP):
         self.k = k
         self.projection = nn.Linear(n_isodepth, n_isodepth, bias=False)
         self.edge_score = nn.Linear(2 * n_isodepth, 1, bias=False)
+        self.register_buffer("reference_coords", None, persistent=False)
 
-    def forward(self, coords, reference_coords, self_indices=None):
+    def forward(self, coords):
+        # Keep this fold's training spots as the reference set for evaluation.
+        if self.training:
+            self.reference_coords = coords.detach()
+        if self.reference_coords is None:
+            raise RuntimeError("Training coordinates are required before prediction")
+
         depths = self.encoder(coords)
-        # Reference coordinates contain training spots only.
-        reference = self.encoder(reference_coords)
-        # KNN selects neighbors; attention learns their weights.
+        reference_depths = self.encoder(self.reference_coords)
+
         with torch.no_grad():
-            distances = torch.cdist(depths, reference, compute_mode="donot_use_mm_for_euclid_dist")
-            available = len(reference)
-            if self_indices is not None:
-                # Exclude the query when it is also a reference spot.
-                distances.scatter_(1, self_indices[:, None], float("inf"))
-                available -= 1
+            distances = torch.cdist(
+                depths, reference_depths, compute_mode="donot_use_mm_for_euclid_dist"
+            )
+            # Exclude each spot from its own neighborhood during training and reconstruction.
+            same_spots = torch.equal(coords, self.reference_coords)
+            if same_spots:
+                distances.fill_diagonal_(float("inf"))
+            available = len(reference_depths) - int(same_spots)
             if available < 1:
                 raise ValueError("Each query needs at least one other reference spot")
             indices = distances.topk(min(self.k, available), largest=False).indices
 
-        neighbors = self.projection(reference)[indices]
+        neighbors = self.projection(reference_depths)[indices]
         query = self.projection(depths).unsqueeze(1).expand_as(neighbors)
         scores = self.edge_score(torch.cat((query, neighbors), dim=-1)).squeeze(-1)
         weights = torch.softmax(nn.functional.leaky_relu(scores, negative_slope=0.2), dim=1)
         context = (weights.unsqueeze(-1) * neighbors).sum(dim=1)
-        # Add neighbor context before the linear readout.
         return self.decoder(depths + context), depths
 
     def penalty(self, lasso_lambda):
