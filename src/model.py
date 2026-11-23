@@ -19,7 +19,7 @@ import torch.nn as nn
 
 
 class MetMapMLP(nn.Module):
-    """Encode coordinates into isodepths and reconstruct signals with a linear decoder."""
+    # Encode coordinates into isodepths and reconstruct signals with a linear decoder.
 
     needs_feature_subset = False
 
@@ -38,7 +38,7 @@ class MetMapMLP(nn.Module):
         return reconstruction, isodepths
 
     def penalty(self, lasso_lambda: float) -> torch.Tensor:
-        """L1 on the decoder weights (the MET-MAP lasso)."""
+        # L1 on the decoder weights (the MET-MAP lasso).
         return lasso_lambda * torch.norm(self.decoder.weight, 1)
 
     def decoder_weights(self) -> np.ndarray:
@@ -49,10 +49,7 @@ class MetMapMLP(nn.Module):
 
 
 class AttentionMetMap(MetMapMLP):
-    """Single-head graph attention over training neighbors in isodepth space."""
-
     def __init__(self, n_features, hidden_dim=120, n_isodepth=3, k=64):
-        # Inherit the MET-MAP encoder architecture, with separately trained weights.
         super().__init__(n_features, hidden_dim, n_isodepth)
         if k < 1:
             raise ValueError("k must be positive")
@@ -62,49 +59,39 @@ class AttentionMetMap(MetMapMLP):
 
     def forward(self, coords, reference_coords, self_indices=None):
         depths = self.encoder(coords)
-        # During CV, references contain training spots only.
+        # Reference coordinates contain training spots only.
         reference = self.encoder(reference_coords)
-
-        # Distances select neighbors; attention learns their weights.
+        # KNN selects neighbors; attention learns their weights.
         with torch.no_grad():
-            distances = torch.cdist(
-                depths, reference,
-                compute_mode="donot_use_mm_for_euclid_dist",
-            )
+            distances = torch.cdist(depths, reference, compute_mode="donot_use_mm_for_euclid_dist")
             available = len(reference)
             if self_indices is not None:
-                # Exclude the query itself during training and reconstruction.
+                # Exclude the query when it is also a reference spot.
                 distances.scatter_(1, self_indices[:, None], float("inf"))
                 available -= 1
             if available < 1:
-                raise ValueError("Each query needs another reference spot")
-            indices = distances.topk(
-                min(self.k, available), largest=False,
-            ).indices
+                raise ValueError("Each query needs at least one other reference spot")
+            indices = distances.topk(min(self.k, available), largest=False).indices
 
         neighbors = self.projection(reference)[indices]
         query = self.projection(depths).unsqueeze(1).expand_as(neighbors)
-        scores = self.edge_score(
-            torch.cat((query, neighbors), dim=-1),
-        ).squeeze(-1)
-        weights = torch.softmax(
-            nn.functional.leaky_relu(scores, negative_slope=0.2),
-            dim=1,
-        )
+        scores = self.edge_score(torch.cat((query, neighbors), dim=-1)).squeeze(-1)
+        weights = torch.softmax(nn.functional.leaky_relu(scores, negative_slope=0.2), dim=1)
         context = (weights.unsqueeze(-1) * neighbors).sum(dim=1)
-
-        # Residual neighbor context followed by a linear metabolite readout.
+        # Add neighbor context before the linear readout.
         return self.decoder(depths + context), depths
 
     def penalty(self, lasso_lambda):
-        # Attention uses AdamW weight decay instead of decoder L1.
+        # AdamW handles regularization for Attention.
         return None
 
     def decoder_weights(self):
-        # Raw encoder axes do not have direct linear metabolite loadings.
+        # Context mixing prevents direct loadings on the raw isodepth axes.
         return None
 
 
+# Maps the "type" name used in config.yaml to the class that builds it.
+# Add one line per new model: "my_model": MyModel,
 MODEL_REGISTRY = {
     "metmap": MetMapMLP,
     "attention": AttentionMetMap,
