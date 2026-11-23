@@ -45,6 +45,17 @@ Only `src/model.py` and `config.yaml` change. See the instructions at the top of
 
 ## Contributions
 
+**Cheng Yihan’s code contributions**
+
+- **MET-MAP model (`src/model.py`)** — Implemented the encoder, linear decoder and forward pass based on the course code. Adapted the model to the project’s shared interface.
+
+- **Training code (`src/train.py`)** — Implemented the original MET-MAP loss and training loop, including MSE, the decoder L1 penalty, backpropagation, Adam updates and learning rate scheduling. Later contributed to Attention training integration and added GPU support.
+
+- **Attention extension (`src/model.py`)** — Implemented a GAT-style attention extension for MET-MAP. It selects 64 neighbors in isodepth space, learns their attention weights and aggregates their information. Prediction uses training spots only as neighbor references.
+
+- **Other contributions** — Fixed preprocessing data leakage in CV. Contributed to experiment configuration, per-feature R² export and adaptation of the biological analysis workflow.
+
+
 **EduSR9 contribution:**
 
 - **Project structure:** I set up the `src/` pipeline, `config.yaml`, the environment files and
