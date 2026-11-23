@@ -6,8 +6,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.model import AttentionMetMap
-
 
 def make_optimizer(model: nn.Module, cfg: dict) -> torch.optim.Optimizer:
     # AdamW applies weight decay to weight matrices only.
@@ -40,15 +38,11 @@ def train_model(
     # Match the reference input-gradient path.
     coords = coords.detach().clone().to(device).requires_grad_(True)
     targets = targets.to(device)
-    self_indices = torch.arange(len(coords), device=device) if isinstance(model, AttentionMetMap) else None
-
+    
     for epoch in range(cfg["epochs"]):
         optimizer.zero_grad()
         coords.grad = None
-        if isinstance(model, AttentionMetMap):
-            prediction, _ = model(coords, coords.detach(), self_indices)
-        else:
-            prediction, _ = model(coords)
+        prediction, _ = model(coords)
         mse = nn.functional.mse_loss(prediction, targets, reduction="mean")
         penalty = model.penalty(cfg["lasso_lambda"])
         if penalty is None:
@@ -64,19 +58,8 @@ def train_model(
         if (epoch + 1) % 500 == 0:
             print(f"Epoch {epoch + 1}: total={total.item():.6f}, MSE={mse.item():.6f}", flush=True)
 
+    # The shared evaluation code uses CPU tensors and NumPy.
+    model.cpu()
     return total_losses, (penalty_losses if has_penalty else None)
 
 
-@torch.no_grad()
-def predict(model, coords, *, reference_coords=None, same_spots=False):
-    # Reuse training references and return predictions on the CPU.
-    model.eval()
-    device = next(model.parameters()).device
-    coords = coords.to(device)
-    if isinstance(model, AttentionMetMap):
-        reference_coords = reference_coords.to(device)
-        self_indices = torch.arange(len(coords), device=device) if same_spots else None
-        prediction, isodepths = model(coords, reference_coords, self_indices)
-    else:
-        prediction, isodepths = model(coords)
-    return prediction.cpu(), isodepths.cpu()
