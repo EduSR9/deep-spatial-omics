@@ -33,8 +33,12 @@ models:
   - name: metmap
     type: metmap
     color: "#2e8b57"
-    params:
-      n_features: 20
+
+  - name: attention
+    type: attention
+    color: "#c0392b"
+    training:
+      weight_decay: 0.01
 
 evaluation:
   test_fraction: 0.2          # random splits: fraction of spots held out
