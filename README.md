@@ -56,7 +56,7 @@ Only `src/model.py` and `config.yaml` change. See the instructions at the top of
 - **Other contributions** — Fixed preprocessing data leakage in CV. Contributed to experiment configuration, per-feature R² export and adaptation of the biological analysis workflow.
 
 
-**EduSR9 contribution:**
+**Eduardo Iglesias contribution:**
 
 - **Project structure:** I set up the `src/` pipeline, `config.yaml`, the environment files and
   the documentation (`README.md`, `SETUP.md`), and wrote `src/main.py`, the script that runs
