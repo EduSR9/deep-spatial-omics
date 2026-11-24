@@ -19,8 +19,14 @@ from src.cv import evaluate_splits, summarize
 from src.data import load_bc515, select_top_metabolites, standardize, tic_normalize
 from src.dummy_data import create_dummy_bc515
 from src.evaluate import rank_metabolites, reconstruction_r2, scaled_loadings
-from src.model import MetMapMLP
-from src.attention import AttentionMetMap
+from src.factory import (
+    MODEL_REGISTRY,
+    create_model,
+    train_selected_model,
+    predict_model,
+    fit_pca,
+    transform_pca,
+)
 from src.splits import (
     coverage_table,
     coverage_warnings,
@@ -28,7 +34,7 @@ from src.splits import (
     region_labels,
     spatial_folds,
 )
-from src.train import train_model
+
 from src.viz import (
     plot_annotations,
     plot_gradient_profile,
@@ -37,11 +43,6 @@ from src.viz import (
     plot_top_metabolites,
     plot_training_loss,
 )
-
-MODEL_REGISTRY = {
-    "metmap": MetMapMLP,
-    "attention": AttentionMetMap,
-}
 
 CLI_OVERRIDES = {
     "model": ("model", "type"),
@@ -61,7 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--model", choices=MODEL_REGISTRY)
     parser.add_argument("--data", help="Override the data file in the config")
-    parser.add_argument("--exp-name", default="default", help="Results go to results/<exp-name>/")
+    parser.add_argument("--exp-name", default="baseline", help="Results go to results/<model_type>/<exp-name>/")
     parser.add_argument("--dummy", action="store_true", help="Use synthetic data instead of the .h5ad file")
     parser.add_argument("--n-features", type=int)
     parser.add_argument("--n-isodepth", type=int)
@@ -83,7 +84,6 @@ def load_config(args: argparse.Namespace) -> dict:
         if value is not None:
             cfg[section][key] = value
     return cfg
-
 
 def set_deterministic(seed: int) -> None:
     torch.manual_seed(seed)
@@ -143,7 +143,8 @@ def main() -> None:
     cfg = load_config(args)
     if cfg["model"]["type"] == "attention" and (cfg["model"]["n_features"] or 0) < 1:
         raise SystemExit("Set --n-features for attention (start with 20).")
-    out_dir = Path("results") / args.exp_name
+    model_type = cfg["model"]["type"]
+    out_dir = (Path("results") / model_type / args.exp_name)
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_dir / "config.yaml", "w") as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
@@ -167,29 +168,48 @@ def main() -> None:
         msi_log, mz = msi_log[:, keep], mz[keep]
     coords_t = torch.tensor(standardize(coords), dtype=torch.float32)
     targets_t = torch.tensor(standardize(msi_log), dtype=torch.float32)
+
+    pcs_t = None
+    if cfg["model"]["type"] == "pca":
+        pca = fit_pca(targets_t, cfg["model"]["n_pcs"],)
+        pcs_t = transform_pca(targets_t, pca,)
+
     print(f"Spots: {coords_t.shape[0]} | metabolites: {targets_t.shape[1]}")
 
     # Model
-    model_cls = MODEL_REGISTRY[cfg["model"]["type"]]
-    model = model_cls(
-        n_features=targets_t.shape[1],
-        hidden_dim=cfg["model"]["hidden_dim"],
-        n_isodepth=cfg["model"]["n_isodepth"],
+    model = create_model(
+        cfg["model"],
+        targets_t.shape[1],
     )
 
     # Train
-    total_losses, l1_losses = train_model(model, coords_t, targets_t, cfg["training"])
+    training_results = train_selected_model(
+        cfg["model"]["type"],
+        model,
+        coords_t,
+        targets_t,
+        cfg["training"],
+        pcs_t,
+    )
+    total_losses = training_results["total_losses"]
+    l1_losses = training_results.get("l1_losses", None,)
+    coord_losses = training_results.get("coord_losses", None,)
+    met_losses = training_results.get("met_losses", None,)
 
     # Evaluate
-    model.eval()
-    with torch.no_grad():
-        prediction, isodepths = model(coords_t)
+    prediction, isodepths = predict_model(
+        cfg["model"]["type"],
+        model,
+        coords_t,
+        targets_t,
+        pcs_t,
+    )
     prediction, isodepths = prediction.numpy(), isodepths.numpy()
     target = targets_t.numpy()
     r2 = reconstruction_r2(target, prediction)
     linear_outputs = {}
     loadings = None
-    if isinstance(model, MetMapMLP):
+    if cfg["model"]["type"] == "metmap":
         weights = model.decoder.weight.detach().numpy()
         loadings = scaled_loadings(weights, isodepths)
         linear_outputs = {"weights": weights, "l1_loss": l1_losses}
@@ -202,7 +222,8 @@ def main() -> None:
     np.savez_compressed(
         out_dir / "outputs.npz",
         coords=coords, mz=mz, isodepths=isodepths,
-        reconstruction=prediction, r2=r2, total_loss=total_losses,
+        reconstruction=prediction, r2=r2,
+        total_loss=total_losses, coord_losses=coord_losses, met_losses=met_losses,
         **linear_outputs,
     )
     torch.save(model.state_dict(), out_dir / "model_state_dict.pt")

@@ -1,8 +1,9 @@
 model:
-  type: "metmap"       # "metmap" or "attention"
+  type: "joint"       # "metmap" or "attention"
   n_features: null     # null = all 2086 metabolites; an integer keeps the top-n by mean intensity
   hidden_dim: 120
   n_isodepth: 3
+  n_pcs: 3
 
 training:
   epochs: 3000

@@ -8,7 +8,13 @@ import torch
 from src.train import train_model
 from src.evaluate import reconstruction_r2
 from src.data import preprocess_split
-
+from src.factory import (
+    create_model,
+    train_selected_model,
+    predict_model,
+    fit_pca,
+    transform_pca,
+)
 
 def evaluate_splits(
     model_cls: type,
@@ -48,19 +54,36 @@ def evaluate_splits(
             torch.tensor(x, dtype=torch.float32) for x in arrays
         )
 
-        model = model_cls(
-            n_features=train_targets.shape[1],
-            hidden_dim=model_cfg["hidden_dim"],
-            n_isodepth=model_cfg["n_isodepth"],
-            )
+        train_pcs = None
+        test_pcs = None
+
+        if model_cfg["type"] == "pca":
+            pca = fit_pca(train_targets, model_cfg["n_pcs"],)
+            train_pcs = transform_pca(train_targets, pca,)
+            test_pcs = transform_pca(test_targets, pca,)
+
+        model = create_model(model_cfg, train_targets.shape[1],)
 
         # Train a new model
-        train_model(model, train_coords, train_targets, train_cfg)
+        train_selected_model(
+            model_cfg["type"],
+            model,
+            train_coords,
+            train_targets,
+            train_cfg,
+            train_pcs,
+        )
 
         # Test the model
         model.eval()
-        with torch.no_grad():
-            predictions, _ = model(test_coords) # we discard the isodepths
+        predictions, _ = predict_model(
+            model_cfg["type"],
+            model,
+            test_coords,
+            test_targets,
+            test_pcs,
+        )
+
 
         # Get the r2, median r2 and mse
         predictions = predictions.numpy()
