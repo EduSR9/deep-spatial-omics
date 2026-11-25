@@ -67,7 +67,7 @@ See more detailed instructions at the top of `src/model.py`.
 
 - **MET-MAP model (`src/model.py`)**. I implemented the coordinate encoder, linear decoder, and forward pass based on the course materials. I adapted the model to the project’s shared interface.
 - **Training code (`src/train.py`)**. I implemented the MET-MAP training loop with mean squared error, an L1 penalty on the decoder, Adam, and learning-rate scheduling. I later integrated the attention model into the shared training loop and added GPU support.
-- **Graph attention extension (`src/model.py`, `config.yaml`)**. I added a decoder that selects 64 training neighbors in three-dimensional isodepth space and learns how much each neighbor contributes to the prediction. I compared it with MET-MAP on the same random splits and spatial folds of BC-515 and tested different neighbor settings.
+- **Graph attention extension (`src/model.py`, `config.yaml`)**. I added a decoder that selects 64 training neighbors in three-dimensional isodepth space and learns how much each neighbor contributes to the prediction. I compared it with MET-MAP on the same random splits and spatial folds of BC-515 and tested different settings.
 - **Other contributions**. I fixed a preprocessing leak in cross-validation and helped with per-metabolite R² exports and the biological analysis workflow.
 
 *GenAI use for coding and language editing.* I used OpenAI Codex to help write and debug parts of the PyTorch code and to run and check model comparisons. I also used it to polish the English wording of this contribution statement. I asked Codex to integrate the graph attention model into the existing code structure, keep the implementation concise, and shorten the descriptions of my secondary contributions.
