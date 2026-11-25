@@ -256,11 +256,15 @@ def main() -> None:
     ranking.to_csv(out_dir / "metabolite_ranking.csv", index=False)
     np.savez_compressed(
         out_dir / "outputs.npz",
-        coords=coords, mz=mz, isodepths=isodepths,
-        reconstruction=prediction, r2=r2, total_loss=total_losses,
+        coords=coords,
+        mz=mz,
+        isodepths=isodepths,
+        reconstruction=prediction,
+        r2=r2,
+        total_loss=total_losses,
         feature_index=keep,  # Which metabolites of the dataset the model used
-        reconstruction=prediction, r2=r2,
-        total_loss=total_losses, coord_losses=coord_losses, met_losses=met_losses,
+        coord_losses=coord_losses,
+        met_losses=met_losses,
         **linear_outputs,
     )
     torch.save(model.state_dict(), out_dir / "model_state_dict.pt")
