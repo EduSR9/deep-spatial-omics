@@ -41,14 +41,6 @@ models:
     training:
       weight_decay: 0.01
 
-  - name: self_attention
-    type: self_attention
-    color: "#286ca4"
-    params:
-      n_features: 20
-    training:
-      weight_decay: 0.01
-
   - name: xym
     type: xym
     color: "#9a5bad"
