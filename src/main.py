@@ -20,6 +20,7 @@ from src.data import load_bc515, select_top_metabolites, standardize, tic_normal
 from src.dummy_data import create_dummy_bc515
 from src.evaluate import rank_metabolites, reconstruction_r2, scaled_loadings
 from src.factory import (
+    MEASURED_INPUT_MODELS,
     MODEL_REGISTRY,
     create_model,
     train_selected_model,
@@ -56,6 +57,7 @@ CLI_OVERRIDES = {
     "data": ("data", "filepath"),
     "n_features": ("model", "n_features"),
     "n_isodepth": ("model", "n_isodepth"),
+    "n_pcs": ("model", "n_pcs"),
     "hidden_dim": ("model", "hidden_dim"),
     "epochs": ("training", "epochs"),
     "learning_rate": ("training", "learning_rate"),
@@ -76,10 +78,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--model", choices=MODEL_REGISTRY)
     parser.add_argument("--data", help="Override the data file in the config")
-    parser.add_argument("--exp-name", default="baseline", help="Results go to results/<model_type>/<exp-name>/")
+    parser.add_argument("--exp-name", default="baseline",
+                        help="Experiment folder under results/, or results/<model>/ for a single model")
     parser.add_argument("--dummy", action="store_true", help="Use synthetic data instead of the .h5ad file")
     parser.add_argument("--n-features", type=int)
     parser.add_argument("--n-isodepth", type=int)
+    parser.add_argument("--n-pcs", type=int)
     parser.add_argument("--hidden-dim", type=int)
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--learning-rate", type=float)
@@ -87,7 +91,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float, help="> 0 trains with AdamW")
     parser.add_argument("--seed", type=int)
     parser.add_argument("--cv", action="store_true",
-                        help="Run the evaluation protocol (random splits + spatial CV) instead of the full-data fit")
+                        help="Compare the configured models, or only the model selected with --model")
     return parser.parse_args()
 
 
@@ -97,7 +101,7 @@ def load_config(args: argparse.Namespace) -> dict:
 
     CLI arguments always take precedence over configuration values.
     """
-    with open(args.config) as f:
+    with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     # Single run with a named model (--model): use that model's entry from the "models:" list,
     # so its params and training overrides apply here too, as they do in --cv.
@@ -107,11 +111,24 @@ def load_config(args: argparse.Namespace) -> dict:
         if entry is not None:
             cfg["model"].update(entry.get("params") or {})
             cfg["training"].update(entry.get("training") or {})
+    apply_overrides(cfg, args)
+    return cfg
+
+
+def apply_overrides(cfg: dict, args: argparse.Namespace) -> None:
     for arg_name, (section, key) in CLI_OVERRIDES.items():
         value = getattr(args, arg_name)
         if value is not None:
             cfg[section][key] = value
-    return cfg
+
+
+def validate_features(model_cfg: dict) -> None:
+    n_features = model_cfg["n_features"]
+    if n_features is not None and n_features < 1:
+        raise SystemExit("--n-features must be positive.")
+    if model_cfg["type"] == "self_attention" and n_features is None:
+        raise SystemExit("Set --n-features for self_attention (start with 20).")
+
 
 def set_deterministic(seed: int) -> None:
     """Same seed, same result: fixes the random seeds and forces deterministic operations.
@@ -124,6 +141,7 @@ def set_deterministic(seed: int) -> None:
 
 def run_cv(
     cfg: dict,
+    args: argparse.Namespace,
     out_dir: Path,
     coords: np.ndarray,
     annotation: np.ndarray,
@@ -155,32 +173,64 @@ def run_cv(
         for k in range(eval_cfg["n_spatial_folds"])
     ]
 
-    random_results, random_features = evaluate_splits(
-        cfg["model"], cfg["training"], coords, msi, mz, random_split_list, regions, "random",
-    )
-    spatial_results, spatial_features = evaluate_splits(
-        cfg["model"], cfg["training"], coords, msi, mz, spatial_split_list, regions, "spatial",
-    )
-    results = pd.concat([random_results, spatial_results], ignore_index=True)
-    results.to_csv(out_dir / "cv_results.csv", index=False)
-    feature_results = pd.concat([random_features, spatial_features], ignore_index=True)
-    feature_results.to_csv(out_dir / "cv_feature_r2.csv", index=False)
+    entries = cfg["models"]
+    if args.model:
+        entry = next((m for m in entries if m["type"] == args.model), None)
+        entries = [entry or {"name": args.model, "type": args.model}]
 
-    summary = summarize(results)
-    summary.to_csv(out_dir / "cv_summary.csv")
-    print(summary.to_string())
-    print(f"CV results in {out_dir}")
+    all_spots = np.arange(n_spots)
+    for entry in entries:
+        model_cfg = {**cfg["model"], **(entry.get("params") or {}), "type": entry["type"]}
+        if args.model is None and "n_features" in eval_cfg:
+            model_cfg["n_features"] = eval_cfg["n_features"]
+        train_cfg = {**cfg["training"], **(entry.get("training") or {})}
+        run_cfg = {**cfg, "model": model_cfg, "training": train_cfg, "data": cfg["data"].copy()}
+        apply_overrides(run_cfg, args)
+        validate_features(model_cfg)
+
+        model_dir = out_dir / entry["name"]
+        model_dir.mkdir(exist_ok=True)
+        with (model_dir / "config.yaml").open("w", encoding="utf-8") as f:
+            yaml.safe_dump(run_cfg, f, sort_keys=False)
+        print(f"\n=== {entry['name']} ===", flush=True)
+
+        random_results, random_features = evaluate_splits(
+            model_cfg, train_cfg, coords, msi, mz, random_split_list, regions, "random",
+        )
+        spatial_results, spatial_features = evaluate_splits(
+            model_cfg, train_cfg, coords, msi, mz, spatial_split_list, regions, "spatial",
+        )
+        results = pd.concat([random_results, spatial_results], ignore_index=True)
+        results.to_csv(model_dir / "cv_results.csv", index=False)
+        pd.concat([random_features, spatial_features], ignore_index=True).to_csv(
+            model_dir / "cv_feature_r2.csv", index=False,
+        )
+        summary = summarize(results)
+        summary.to_csv(model_dir / "cv_summary.csv")
+        print(summary.to_string())
+
+        _, reconstruction = evaluate_splits(
+            model_cfg, train_cfg, coords, msi, mz, [(all_spots, all_spots)], regions, "reconstruction",
+        )
+        reconstruction.to_csv(model_dir / "reconstruction_r2.csv", index=False)
+
+    plot_entries = [{**entry, "measured_input": entry["type"] in MEASURED_INPUT_MODELS} for entry in entries]
+    plot_model_boxplots(out_dir, plot_entries)
+    print(f"CV results in {out_dir} (boxplot: boxplot_r2.png)")
 
 
 def main() -> None:
     args = parse_args()
     cfg = load_config(args)
-    if cfg["model"]["type"] == "attention" and (cfg["model"]["n_features"] or 0) < 1:
-        raise SystemExit("Set --n-features for attention (start with 20).")
     model_type = cfg["model"]["type"]
-    out_dir = (Path("results") / model_type / args.exp_name)
+    if not args.cv:
+        validate_features(cfg["model"])
+    out_dir = Path("results")
+    if not args.cv or args.model:
+        out_dir /= model_type
+    out_dir /= args.exp_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    with open(out_dir / "config.yaml", "w") as f:
+    with open(out_dir / "config.yaml", "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
 
     set_deterministic(cfg["training"]["seed"])
@@ -191,7 +241,7 @@ def main() -> None:
     else:
         coords, msi, annotation, mz = load_bc515(cfg["data"]["filepath"])
     if args.cv:
-        run_cv(cfg, out_dir, coords, annotation, msi, mz)
+        run_cv(cfg, args, out_dir, coords, annotation, msi, mz)
         return
 
     # 2. Preprocess: TIC normalization, optional top-n metabolites, standardization
@@ -254,6 +304,7 @@ def main() -> None:
 
     # 6. Save tables, outputs and the trained weights
     ranking.to_csv(out_dir / "metabolite_ranking.csv", index=False)
+    joint_losses = {} if coord_losses is None else {"coord_losses": coord_losses, "met_losses": met_losses}
     np.savez_compressed(
         out_dir / "outputs.npz",
         coords=coords,
@@ -263,8 +314,7 @@ def main() -> None:
         r2=r2,
         total_loss=total_losses,
         feature_index=keep,  # Which metabolites of the dataset the model used
-        coord_losses=coord_losses,
-        met_losses=met_losses,
+        **joint_losses,
         **linear_outputs,
     )
     torch.save(model.state_dict(), out_dir / "model_state_dict.pt")

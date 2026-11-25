@@ -355,31 +355,36 @@ def plot_model_boxplots(out_dir: str | Path, models: list[dict]) -> pd.DataFrame
     present = [m for m in models if m["name"] in set(values["model"])]
     protocols = [p for p in protocols_all if p in set(values["protocol"])]
 
-    fig, ax = plt.subplots(figsize=(7, 5))
-    width = 0.8 / len(present)
-    for j, protocol in enumerate(protocols):
-        for i, m in enumerate(present):
-            vals = values[(values["model"] == m["name"]) & (values["protocol"] == protocol)]["r2"].to_numpy()
-            pos = j + (i - (len(present) - 1) / 2) * width
-            color = m.get("color", "#888888")
-            box = ax.boxplot(vals, positions=[pos], widths=width * 0.85, patch_artist=True,
-                             medianprops=dict(color="black"), showfliers=False)
-            for patch in box["boxes"]:
-                patch.set(facecolor=color, alpha=0.65, edgecolor=color)
-
-    ax.axhline(0, color="gray", linestyle="--", linewidth=1)
-    # Zoom to the readable range: from -2 (clearly worse than predicting the mean) up to just
-    # above the maximum R2 of 1. Values below the window are counted and reported in the title.
+    groups = {
+        "Coordinate input": [m for m in present if not m.get("measured_input")],
+        "Coordinates and measured metabolites": [m for m in present if m.get("measured_input")],
+    }
+    panels = [(label, group) for label, group in groups.items() if group]
+    fig, axes = plt.subplots(1, len(panels), figsize=(7 * len(panels), 5), sharey=True, squeeze=False)
     y_min = -2.0
-    below = int((values["r2"] < y_min).sum())
-    ax.set_ylim(y_min, 1.05)
-    ax.set_title(f"Held-out R² by model  ({below} values below {y_min} not shown)")
-    ax.set_xticks(range(len(protocols)))
-    ax.set_xticklabels([protocol_labels[p] for p in protocols])
-    ax.set_xlabel("Test")
-    ax.set_ylabel("R² per metabolite (averaged over splits)")
-    ax.legend(handles=[Patch(facecolor=m.get("color", "#888888"), alpha=0.65, label=m["name"])
-                       for m in present])
+    for ax, (label, group) in zip(axes[0], panels):
+        panel_values = values[values["model"].isin(m["name"] for m in group)]
+        width = 0.8 / len(group)
+        for j, protocol in enumerate(protocols):
+            for i, m in enumerate(group):
+                vals = panel_values.loc[
+                    (panel_values["model"] == m["name"]) & (panel_values["protocol"] == protocol), "r2"
+                ]
+                pos = j + (i - (len(group) - 1) / 2) * width
+                color = m.get("color", "#888888")
+                box = ax.boxplot(vals, positions=[pos], widths=width * 0.85, patch_artist=True,
+                                 medianprops=dict(color="black"), showfliers=False)
+                for patch in box["boxes"]:
+                    patch.set(facecolor=color, alpha=0.65, edgecolor=color)
+
+        below = int((panel_values["r2"] < y_min).sum())
+        ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+        ax.set_ylim(y_min, 1.05)
+        ax.set_title(f"{label}\n({below} values below {y_min:g} outside the axes)")
+        ax.set_xticks(range(len(protocols)), [protocol_labels[p] for p in protocols])
+        ax.legend(handles=[Patch(facecolor=m.get("color", "#888888"), alpha=0.65, label=m["name"])
+                           for m in group])
+    axes[0, 0].set_ylabel("R² per metabolite (averaged over splits)")
     fig.tight_layout()
     fig.savefig(out_dir / "boxplot_r2.png", dpi=300)
     plt.close(fig)

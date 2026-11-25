@@ -32,11 +32,12 @@ python src/main.py --exp-name baseline                      # real data, config.
 python src/main.py --exp-name top100 --n-features 100       # only the 100 most abundant metabolites
 python src/main.py --exp-name iso5 --n-isodepth 5           # using 5 isodepths
 python src/main.py --exp-name metmap_run --model metmap     # one model, with its settings from "models:"
-python src/main.py --exp-name cv --cv                       # evaluation: every model in "models:"
+python src/main.py --exp-name cv --cv                       # evaluate every model in "models:"
+python src/main.py --exp-name gat_cv --cv --model attention # evaluate graph attention only
 ```
 
-Every run writes to `results/<model>/<exp-name>/`, including the exact `config.yaml` used.
-The run without experiment name specified will be saved to `results/<model>/baseline`.
+Single-model runs write to `results/<model>/<exp-name>/`, with `baseline` as the default experiment name.
+An all-model CV run writes to `results/<exp-name>/`. Each model's folder contains the effective `config.yaml`.
 
 ### Single run (no `--cv`)
 
@@ -47,26 +48,36 @@ metabolites and the metabolite ranking. Without `--model`, it uses the `model:` 
 There are multiple ways to run the proposed model extensions: 
 - by changing the `model:` inside the `config.yaml` to another
 - via the command-line flag `--model <name>` which overrides values specified in `config.yaml`
-Supported model names: `metmap`, `attention`, `xym`, `joint`, `pca`.
+Supported model names are `metmap`, `attention` (64-neighbor graph attention),
+`self_attention` (metabolite-token self-attention), `xym`, `joint`, and `pca`.
 
 ### Cross-validation (`--cv`)
 
-Runs the selected model on repeated random splits and spatial cross-validation folds and writes:
+Without `--model`, evaluates every model in `models:` on shared random splits and spatial folds.
+The default all-model comparison uses 20 metabolites per split, selected using the training spots.
+Use `--n-features` to override this count. The `self_attention` decoder attends across metabolites
+and is intended for small feature subsets. With `--model`, the same protocol runs for the selected
+model and writes to `results/<model>/<exp-name>/`.
 
 - `coverage.csv`, `spatial_folds.png`: region counts per spatial fold, shared by all models.
 - `cv_results.csv`, `cv_summary.csv`: held-out metrics per split, and their mean and spread.
 - `cv_feature_r2.csv`: held-out R² for each metabolite and split.
 - `reconstruction_r2.csv`: in-sample R² per metabolite, from a separate fit on all spots. It is
   not part of the held-out evaluation.
-- `boxplot_r2.png`, `boxplot_summary.csv`: one box per model for reconstruction (in-sample),
-  random and spatial; each box holds one value per metabolite, averaged over splits.
+- `boxplot_r2.png`, `boxplot_summary.csv`: per-metabolite R² averaged over splits, with one box
+  per model and protocol. The figure has a panel for models that use coordinates alone and a
+  panel for XYM, Joint, and PCA, which use measured metabolites at the test spots.
 
 Spatial CV is the main evaluation; random splits are a secondary check. Settings for the
 splits (number of repeats, number of folds, interface definition) are in the
 `evaluation` section of `config.yaml`. For a quick test, copy `config.yaml`, lower
 `n_random_repeats` and `n_spatial_folds` (at least 2), and pass it with `--config`.
 
-Available overrides: `--model`, `--data`, `--n-features`, `--n-isodepth`, `--hidden-dim`, `n-pcs`,
+With a CUDA-enabled PyTorch installation, set `device: cuda` under `training` in a copy of
+`config.yaml`. Set `CUBLAS_WORKSPACE_CONFIG=:4096:8` in the shell before running Python for
+deterministic CUDA operations.
+
+Available overrides: `--model`, `--data`, `--n-features`, `--n-isodepth`, `--hidden-dim`, `--n-pcs`,
 `--epochs`, `--learning-rate`, `--lasso-lambda`, `--weight-decay`, `--seed`.
 
 ### Adding a model
@@ -83,21 +94,21 @@ A new model can be added by following the steps below:
 Test new models with:
 ```bash
 python src/main.py --dummy --exp-name test
-python src/main.py --dummy --cv --exp-name test_cv
+python src/main.py --dummy --cv --epochs 2 --exp-name test_cv
 ```
 
 ## 4. Biology analysis
 
-Needs a single run (not `--cv`) on the real data, for example `results/baseline/`.
+Use the outputs from a single run on the real data, for example `results/metmap/baseline/`.
 The HMDB table and the paper annotations are already in `data/`, so nothing else has to be
 downloaded.
 
 ```bash
-python analysis/tumor_stroma.py baseline       # figures and tables
-python analysis/hmdb_candidates.py baseline    # HTML report with all HMDB candidates (run after the line above)
+python analysis/tumor_stroma.py metmap/baseline
+python analysis/hmdb_candidates.py metmap/baseline
 ```
 
-Both write to `results/biology/<exp-name>/`:
+Both write to `results/biology/<model>/<exp-name>/`:
 
 - `change_vs_r2.png`: every metabolite, Tumor - Stroma difference vs model R2.h
 - `well_explained_identities.png`: the big changes the model explains well (R2 > 0.6), wit

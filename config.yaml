@@ -1,5 +1,5 @@
 model:
-  type: "metmap"       # name of a model in MODEL_REGISTRY (src/model.py)
+  type: "metmap"       # name of a model in MODEL_REGISTRY (src/factory.py)
   n_features: null     # null = all 2086 metabolites; an integer keeps the top-n by mean intensity
   hidden_dim: 120
   n_isodepth: 3
@@ -19,13 +19,13 @@ data:
 
 # Models compared with --cv. Each one is trained and scored the same way, gets its own folder,
 # and gets its own box in boxplot_r2.png.
-#   type:     a key of MODEL_REGISTRY in src/model.py
+#   type:     a key of MODEL_REGISTRY in src/factory.py
 #   params:   overrides the "model" section above
 #   training: overrides the "training" section above
 # Models that cannot run on all 2,086 metabolites must set n_features in their params.
 # FOR NEW MODELS (partner): copy one entry below and change:
 #   name:  the folder name and the label in the boxplot
-#   type:  the name you registered in MODEL_REGISTRY (src/model.py)
+#   type:  the name you registered in MODEL_REGISTRY (src/factory.py)
 #   color: the box color, as a hex code
 #   params:   overrides for the "model:" section above (e.g. n_features)
 #   training: overrides for the "training:" section above (e.g. weight_decay)
@@ -41,7 +41,28 @@ models:
     training:
       weight_decay: 0.01
 
+  - name: self_attention
+    type: self_attention
+    color: "#286ca4"
+    params:
+      n_features: 20
+    training:
+      weight_decay: 0.01
+
+  - name: xym
+    type: xym
+    color: "#9a5bad"
+
+  - name: joint
+    type: joint
+    color: "#c07818"
+
+  - name: pca
+    type: pca
+    color: "#337f85"
+
 evaluation:
+  n_features: 20             # common feature count for all-model CV; --n-features overrides it
   test_fraction: 0.2          # random splits: fraction of spots held out
   n_random_repeats: 5         # independent random 80/20 splits
   n_spatial_folds: 5          # k-means blocks on (x, y); each block is held out once

@@ -25,3 +25,9 @@ class AttentionMetMap(nn.Module):
         tokens = self.norm1(tokens + attended)
         tokens = self.norm2(tokens + self.feedforward(tokens))
         return self.output(tokens).squeeze(-1), depths
+
+    def penalty(self, lasso_lambda):
+        return None
+
+    def decoder_weights(self):
+        return None
