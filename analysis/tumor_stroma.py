@@ -195,23 +195,32 @@ def plot_identities(ids: pd.DataFrame, path: Path) -> None:
         y = np.arange(len(side))
         size = side["difference_tumor_minus_stroma"].abs()
         colors = [CLASS_COLORS[c] for c in side["chemical_class"]]
-        ax.hlines(y, 0, size, color=colors, linewidth=2)
-        ax.scatter(size, y, c=colors, s=70, zorder=3)
+        ax.hlines(y, 0, size, color=colors, linewidth=1.5, alpha=0.6)
+        # Dot size grows with the model R2 (0.6 = small, 1.0 = big): better explained, bigger dot
+        dot_sizes = 60 + 700 * (side["model_r2"].to_numpy() - WELL_EXPLAINED) / (1 - WELL_EXPLAINED)
+        ax.scatter(size, y, c=colors, s=dot_sizes, zorder=3, edgecolors="white", linewidths=0.8)
+        # R2 values in a fixed column on the right, so they never overlap the dots or the names
+        x_text = ids["difference_tumor_minus_stroma"].abs().max() * 1.1
+        ax.axvline(x_text, color="#dddddd", linewidth=0.8)
+        for yi, r2 in zip(y, side["model_r2"]):
+            ax.text(x_text * 1.03, yi, f"{r2:.2f}", va="center", ha="left", fontsize=13, color="#333333",
+                    weight="bold" if r2 >= 0.8 else "normal")
+        ax.text(x_text * 1.03, len(side) - 0.3, "R²", ha="left", va="bottom", fontsize=14,
+                weight="bold", color="#333333")
         ax.set_yticks(y)
         ax.set_yticklabels([short(n) for n in side["identity"]], fontsize=13 if len(side) > 25 else 15)
         for tick, chem in zip(ax.get_yticklabels(), side["chemical_class"]):
             tick.set_color(CLASS_COLORS[chem] if chem != "unknown" else "#7f8c8d")  # Light gray is hard to read
-        ax.set_ylim(-0.8, len(side) - 0.2)
-        ax.set_xlim(0, ids["difference_tumor_minus_stroma"].abs().max() * 1.05)
+        ax.set_ylim(-0.8, len(side) + 0.2)
+        ax.set_xlim(0, x_text * 1.15)
         ax.set_xlabel("|Tumor - Stroma| (median log intensity)", fontsize=14)
         ax.spines[["top", "right"]].set_visible(False)
 
-    present = [c for c in CLASS_COLORS if c in set(ids["chemical_class"])]
-    fig.legend(handles=[Patch(color=CLASS_COLORS[c], label=c) for c in present], loc="lower center",
-               ncol=len(present), fontsize=15, frameon=False)
-    fig.text(0.5, 0.045, "?  = HMDB mass match within 10 ppm      ??  = only within 50 ppm      "
-             "no mark = name from the original paper", ha="center", fontsize=14, color="#555555")
-    fig.subplots_adjust(left=0.2, right=0.97, top=0.93, bottom=0.14)
+    fig.text(0.5, 0.955, "Well explained big changes (model R² > 0.6). Bigger dot and bold R² = better explained",
+             ha="center", fontsize=15, color="#333333")
+    fig.text(0.5, 0.03, "?  = HMDB mass match within 10 ppm      ??  = only within 50 ppm      "
+             "no mark = name from the original paper", ha="center", fontsize=12, color="#555555")
+    fig.subplots_adjust(left=0.22, right=0.97, top=0.9, bottom=0.12)
     fig.savefig(path, dpi=170)
     plt.close(fig)
 
