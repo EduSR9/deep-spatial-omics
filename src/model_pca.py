@@ -59,3 +59,6 @@ class PCAMetMap(nn.Module):
             reconstruction,
             isodepths,
         )
+        
+    def decoder_weights(self):
+        return self.decoder.weight.detach().numpy()

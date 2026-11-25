@@ -1,14 +1,4 @@
 """Spatial models: coordinates -> isodepths -> metabolites.
-
-ADDING A MODEL
-1. Write the class below, under "NEW MODELS GO HERE". It needs:
-   - __init__(n_features, hidden_dim=120, n_isodepth=3)
-   - forward(coords) -> (prediction, isodepths)
-   - penalty(lasso_lambda): extra loss term, or None
-   - decoder_weights(): (n_features, n_isodepth) array, or None
-   - class attribute needs_feature_subset = True/False
-2. Add one line to MODEL_REGISTRY.
-3. Add one entry under "models:" in config.yaml.
 """
 
 from __future__ import annotations
@@ -43,9 +33,6 @@ class MetMapMLP(nn.Module):
 
     def decoder_weights(self) -> np.ndarray:
         return self.decoder.weight.detach().cpu().numpy()
-
-
-# NEW MODELS GO HERE (see the top of this file)
 
 
 class AttentionMetMap(MetMapMLP):
