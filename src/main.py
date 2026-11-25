@@ -45,6 +45,12 @@ from src.viz import (
     plot_training_loss,
 )
 
+# =====================================================
+# COMMAND-LINE CONFIGURATION
+# =====================================================
+
+# Maps command-line arguments to locations in config.yaml.
+# Values provided through the CLI override the default configuration.
 CLI_OVERRIDES = {
     "model": ("model", "type"),
     "data": ("data", "filepath"),
@@ -60,7 +66,12 @@ CLI_OVERRIDES = {
 
 
 def parse_args() -> argparse.Namespace:
-    """Command-line options. Every option left empty keeps the value from config.yaml."""
+    """
+    Parse command-line arguments.
+
+    Values supplied through the CLI override config.yaml,
+    making experiments reproducible without editing the file.
+    """
     parser = argparse.ArgumentParser(description="MET-MAP on BC-515")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--model", choices=MODEL_REGISTRY)
@@ -81,8 +92,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_config(args: argparse.Namespace) -> dict:
-    """Read config.yaml and apply, in this order, the model's entry from "models:" and the
-    command-line options (the last one wins)."""
+    """
+    Load config.yaml and apply any command-line overrides.
+
+    CLI arguments always take precedence over configuration values.
+    """
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
     # Single run with a named model (--model): use that model's entry from the "models:" list,
