@@ -16,6 +16,7 @@ def create_dummy_bc515(
     # A smooth spatial trend per metabolite so the model has something to learn.
     trend = coords @ rng.normal(size=(2, n_metabolites)) / 100
     msi = np.exp(trend + rng.normal(scale=0.3, size=(n_spots, n_metabolites)))
+    # Same label proportions as BC-515 (2707 Stroma, 724 Tumor, 77 Unlabelled of 3508 spots)
     annotation = rng.choice(["Stroma", "Tumor", "Unlabelled"], size=n_spots, p=[0.77, 0.21, 0.02])
     mz = np.round(rng.uniform(100, 1000, size=n_metabolites), 4).astype(str)
     return coords, msi, annotation, mz

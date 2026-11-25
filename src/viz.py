@@ -309,6 +309,92 @@ def plot_top_metabolites(
     plt.close()
 
 
+def plot_model_boxplots(out_dir: str | Path, models: list[dict]) -> pd.DataFrame:
+    """Boxplot of R² per metabolite, one box per model for each test: reconstruction
+    (in-sample), random and spatial (held-out).
+
+    Each box holds one value per metabolite: that metabolite's R² averaged over the splits of
+    the test. Reads <out_dir>/<model name>/cv_feature_r2.csv for every model in the list.
+    Saves boxplot_r2.png and boxplot_summary.csv in out_dir and returns the summary table.
+    """
+    from matplotlib.patches import Patch
+
+    out_dir = Path(out_dir)
+    protocols_all = ["reconstruction", "random", "spatial"]
+    protocol_labels = {"reconstruction": "reconstruction (in-sample)", "random": "random", "spatial": "spatial"}
+    rows = []
+    for m in models:
+        path = out_dir / m["name"] / "cv_feature_r2.csv"
+        if not path.exists():
+            print(f"WARNING: {path} not found, skipping {m['name']}")
+            continue
+        df = pd.read_csv(path)
+        recon_path = out_dir / m["name"] / "reconstruction_r2.csv"
+        if recon_path.exists():
+            df = pd.concat([df, pd.read_csv(recon_path)], ignore_index=True)
+        for protocol in protocols_all:
+            sub = df[df.protocol == protocol]
+            if sub.empty:
+                continue
+            per_metabolite = sub.groupby("feature_index")["r2"].mean().dropna()
+            # Drop numerically broken values (metabolites with almost no variance in the test
+            # spots): their tiny SST makes R2 explode, which says nothing about the model.
+            broken = per_metabolite < -10
+            if broken.any():
+                print(f"NOTE: {m['name']} / {protocol}: {int(broken.sum())} metabolites excluded "
+                      f"(R² < -10, numerically unstable)")
+            per_metabolite = per_metabolite[~broken]
+            rows.append(pd.DataFrame({
+                "model": m["name"], "protocol": protocol, "r2": per_metabolite.to_numpy(),
+            }))
+    if not rows:
+        print("No per-metabolite results found, no boxplot written.")
+        return pd.DataFrame()
+
+    values = pd.concat(rows, ignore_index=True)
+    present = [m for m in models if m["name"] in set(values["model"])]
+    protocols = [p for p in protocols_all if p in set(values["protocol"])]
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    width = 0.8 / len(present)
+    for j, protocol in enumerate(protocols):
+        for i, m in enumerate(present):
+            vals = values[(values["model"] == m["name"]) & (values["protocol"] == protocol)]["r2"].to_numpy()
+            pos = j + (i - (len(present) - 1) / 2) * width
+            color = m.get("color", "#888888")
+            box = ax.boxplot(vals, positions=[pos], widths=width * 0.85, patch_artist=True,
+                             medianprops=dict(color="black"), showfliers=False)
+            for patch in box["boxes"]:
+                patch.set(facecolor=color, alpha=0.65, edgecolor=color)
+
+    ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+    # Zoom to the readable range: from -2 (clearly worse than predicting the mean) up to just
+    # above the maximum R2 of 1. Values below the window are counted and reported in the title.
+    y_min = -2.0
+    below = int((values["r2"] < y_min).sum())
+    ax.set_ylim(y_min, 1.05)
+    ax.set_title(f"Held-out R² by model  ({below} values below {y_min} not shown)")
+    ax.set_xticks(range(len(protocols)))
+    ax.set_xticklabels([protocol_labels[p] for p in protocols])
+    ax.set_xlabel("Test")
+    ax.set_ylabel("R² per metabolite (averaged over splits)")
+    ax.legend(handles=[Patch(facecolor=m.get("color", "#888888"), alpha=0.65, label=m["name"])
+                       for m in present])
+    fig.tight_layout()
+    fig.savefig(out_dir / "boxplot_r2.png", dpi=300)
+    plt.close(fig)
+
+    summary = values.groupby(["protocol", "model"])["r2"].agg(
+        n_metabolites="size",
+        median_r2="median",
+        mean_r2="mean",
+        share_above_0_3=lambda x: (x > 0.3).mean(),
+        share_above_0_5=lambda x: (x > 0.5).mean(),
+    )
+    summary.to_csv(out_dir / "boxplot_summary.csv")
+    return summary
+
+
 def plot_gradient_profile(
     isodepth: np.ndarray,
     intensity: np.ndarray,

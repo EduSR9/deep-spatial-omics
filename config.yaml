@@ -1,5 +1,5 @@
 model:
-  type: "joint"       # "metmap" or "attention"
+  type: "metmap"       # name of a model in MODEL_REGISTRY (src/model.py)
   n_features: null     # null = all 2086 metabolites; an integer keeps the top-n by mean intensity
   hidden_dim: 120
   n_isodepth: 3
@@ -9,13 +9,37 @@ training:
   epochs: 3000
   learning_rate: 0.001
   lasso_lambda: 0.0001
-  weight_decay: 0.01    # AdamW, attention only
+  weight_decay: 0.0     # 0 = Adam (MET-MAP reference); > 0 = AdamW
   lr_end_factor: 0.05   # LinearLR decays lr to 5% over lr_total_iters
   lr_total_iters: 12000
   seed: 0
 
 data:
   filepath: "data/BC_515_Section_1.h5ad"
+
+# Models compared with --cv. Each one is trained and scored the same way, gets its own folder,
+# and gets its own box in boxplot_r2.png.
+#   type:     a key of MODEL_REGISTRY in src/model.py
+#   params:   overrides the "model" section above
+#   training: overrides the "training" section above
+# Models that cannot run on all 2,086 metabolites must set n_features in their params.
+# FOR NEW MODELS (partner): copy one entry below and change:
+#   name:  the folder name and the label in the boxplot
+#   type:  the name you registered in MODEL_REGISTRY (src/model.py)
+#   color: the box color, as a hex code
+#   params:   overrides for the "model:" section above (e.g. n_features)
+#   training: overrides for the "training:" section above (e.g. weight_decay)
+# Every model in this list runs with the same splits, so the boxes are comparable.
+models:
+  - name: metmap
+    type: metmap
+    color: "#2e8b57"
+
+  - name: attention
+    type: attention
+    color: "#c0392b"
+    training:
+      weight_decay: 0.01
 
 evaluation:
   test_fraction: 0.2          # random splits: fraction of spots held out

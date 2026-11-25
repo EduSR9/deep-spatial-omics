@@ -1,5 +1,7 @@
 data/*
 !data/.gitkeep
+!data/hmdb_compact.csv
+!data/annotation_reference_table1.csv
 results/*
 !results/.gitkeep
 __pycache__/

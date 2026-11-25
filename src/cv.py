@@ -47,6 +47,7 @@ def evaluate_splits(
     feature_results = []
 
     for i, (train_idx, test_idx) in enumerate(splits):
+        # seed + i: every split starts from different weights, and runs stay reproducible
         torch.manual_seed(train_cfg["seed"] + i)
 
         arrays, keep = preprocess_split(coords, msi, train_idx, test_idx, model_cfg["n_features"])
@@ -74,7 +75,7 @@ def evaluate_splits(
             train_pcs,
         )
 
-        # Test the model
+        # 2. Predict the held-out spots
         model.eval()
         predictions, _ = predict_model(
             model_cfg["type"],
@@ -85,7 +86,7 @@ def evaluate_splits(
         )
 
 
-        # Get the r2, median r2 and mse
+        # 3. Held-out R2 per metabolite, its median and the MSE
         predictions = predictions.numpy()
         test_targets = test_targets.numpy()
 
@@ -93,14 +94,13 @@ def evaluate_splits(
         median_r2 = float(np.nanmedian(r2))
         test_mse = float(np.mean((predictions - test_targets) ** 2))
 
-
-        # Count regions in the test set
+        # 4. Count the regions in the test spots
         test_regions = regions[test_idx]
         tumor_count = np.sum(test_regions == "Tumor")
         stroma_count = np.sum(test_regions == "Stroma")
         interface_count = np.sum(test_regions == "Interface")
 
-        # Save results for this split
+        # 5. Save the results of this split
         results.append({
             "protocol": protocol,
             "n_train": len(train_idx),
@@ -111,7 +111,7 @@ def evaluate_splits(
             "test_mse": test_mse,
             "median_r2": median_r2,
             "split": i,
-            "n_valid_r2": int(np.count_nonzero(~np.isnan(r2))),
+            "n_valid_r2": int(np.count_nonzero(~np.isnan(r2))),  # Metabolites with a computable R2
         })
         feature_results.append(pd.DataFrame({
             "protocol": protocol,
