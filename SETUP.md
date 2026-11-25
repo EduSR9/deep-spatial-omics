@@ -54,8 +54,9 @@ Supported model names are `metmap`, `attention` (64-neighbor graph attention),
 ### Cross-validation (`--cv`)
 
 Without `--model`, evaluates every model in `models:` on shared random splits and spatial folds.
-The default all-model comparison uses 20 metabolites per split, selected using the training spots.
-Use `--n-features` to override this count. The `self_attention` decoder attends across metabolites
+By default (`evaluation.n_features: null`) the all-model comparison uses all metabolites. Set
+`evaluation.n_features` to a number, or pass `--n-features`, to keep only the top-n per split,
+selected using the training spots. The `self_attention` decoder attends across metabolites
 and is intended for small feature subsets. With `--model`, the same protocol runs for the selected
 model and writes to `results/<model>/<exp-name>/`.
 
@@ -70,8 +71,21 @@ model and writes to `results/<model>/<exp-name>/`.
 
 Spatial CV is the main evaluation; random splits are a secondary check. Settings for the
 splits (number of repeats, number of folds, interface definition) are in the
-`evaluation` section of `config.yaml`. For a quick test, copy `config.yaml`, lower
-`n_random_repeats` and `n_spatial_folds` (at least 2), and pass it with `--config`.
+`evaluation` section of `config.yaml`.
+
+#### Quick test (`config_fast.yaml`)
+
+`config.yaml` is the default and the one to use for real results; every command uses it unless
+`--config` says otherwise. `config_fast.yaml` is only a quick-test copy of it, to check that the
+pipeline runs: 1 random split, 2 spatial folds and 10 metabolites. With `--dummy` and few epochs,
+an all-model CV finishes quickly:
+
+```bash
+python src/main.py --dummy --cv --config config_fast.yaml --epochs 10 --exp-name fast_check_cv
+```
+
+Drop `--dummy` to run the same quick check on the real data. If you change the models in
+`config.yaml`, update `config_fast.yaml` too.
 
 With a CUDA-enabled PyTorch installation, set `device: cuda` under `training` in a copy of
 `config.yaml`. Set `CUBLAS_WORKSPACE_CONFIG=:4096:8` in the shell before running Python for
