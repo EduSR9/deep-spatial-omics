@@ -24,6 +24,15 @@ MODEL_REGISTRY = {
     "pca": PCAMetMap,
 }
 
+"""
+Master file for choosing model specific parameters and outputs.
+
+create_model: assigning model parameters based on model type
+train_selected_model: selection of model training
+predict_model: 
+fit_pca: precalculation of PCA to be used as model input and training
+"""
+
 # =====================================================
 # MODEL CREATION
 # =====================================================

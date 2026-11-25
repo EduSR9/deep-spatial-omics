@@ -1,4 +1,4 @@
-"""Full-batch training, shared by every model in src/model.py."""
+"""Full-batch training for MET-MAP."""
 
 from __future__ import annotations
 
@@ -9,15 +9,16 @@ import torch.nn as nn
 from src.attention import AttentionMetMap
 
 
-def make_optimizer(model: nn.Module, cfg: dict) -> torch.optim.Optimizer:
-    # AdamW applies weight decay to weight matrices only.
-    weight_decay = cfg.get("weight_decay", 0.0)
-    if weight_decay > 0:
-        return torch.optim.AdamW([
-            {"params": [p for p in model.parameters() if p.ndim >= 2], "weight_decay": weight_decay},
-            {"params": [p for p in model.parameters() if p.ndim < 2], "weight_decay": 0.0},
-        ], lr=cfg["learning_rate"])
-    return torch.optim.Adam(model.parameters(), lr=cfg["learning_rate"])
+def compute_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    decoder_weight: torch.Tensor,
+    lasso_lambda: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Mean reconstruction error plus decoder weight L1."""
+    mse = nn.functional.mse_loss(pred, target, reduction="mean")
+    l1 = lasso_lambda * torch.norm(decoder_weight, 1)
+    return mse + l1, l1
 
 
 def train_model(
@@ -26,10 +27,17 @@ def train_model(
     targets: torch.Tensor,
     cfg: dict,
 ) -> tuple[np.ndarray, np.ndarray | None]:
-    # Keep the shared full-batch MSE, penalty and update sequence.
-    device = torch.device(cfg.get("device", "cpu"))
-    model.to(device).train()
-    optimizer = make_optimizer(model, cfg)
+    """Train a fresh model on preprocessed training spots only."""
+    model.train()
+    attention = isinstance(model, AttentionMetMap)
+    if attention:
+        optimizer = torch.optim.AdamW([
+            {"params": [p for p in model.parameters() if p.ndim >= 2],
+             "weight_decay": cfg.get("weight_decay", 0.01)},
+            {"params": [p for p in model.parameters() if p.ndim < 2], "weight_decay": 0.0},
+        ], lr=cfg["learning_rate"])
+    else:
+        optimizer = torch.optim.Adam(model.parameters(), lr=cfg["learning_rate"])
     scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=1, end_factor=cfg["lr_end_factor"],
         total_iters=cfg["lr_total_iters"],
@@ -54,8 +62,8 @@ def train_model(
         optimizer.step()
         scheduler.step()
         if (epoch + 1) % 500 == 0:
-          mse = total_losses[epoch] - (l1_losses[epoch] if l1_losses is not None else 0.0)
-          print(f"Epoch {epoch + 1}: total={total.item():.6f}, MSE={mse:.6f}", flush=True)
+            mse = total_losses[epoch] - (l1_losses[epoch] if l1_losses is not None else 0.0)
+            print(f"Epoch {epoch + 1}: total={total.item():.6f}, MSE={mse:.6f}", flush=True)
 
     # The shared evaluation code uses CPU tensors and NumPy.
     model.cpu()

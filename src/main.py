@@ -142,10 +142,10 @@ def run_cv(
     ]
 
     random_results, random_features = evaluate_splits(
-        model_cls, cfg["model"], cfg["training"], coords, msi, mz, random, regions, "random",
+        cfg["model"], cfg["training"], coords, msi, mz, random_split_list, regions, "random",
     )
     spatial_results, spatial_features = evaluate_splits(
-        model_cls, cfg["model"], cfg["training"], coords, msi, mz, spatial, regions, "spatial",
+        cfg["model"], cfg["training"], coords, msi, mz, spatial_split_list, regions, "spatial",
     )
     results = pd.concat([random_results, spatial_results], ignore_index=True)
     results.to_csv(out_dir / "cv_results.csv", index=False)

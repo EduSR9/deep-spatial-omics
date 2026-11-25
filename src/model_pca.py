@@ -5,6 +5,16 @@ import torch.nn as nn
 
 
 class PCAMetMap(nn.Module):
+    """
+    PC encoder.
+
+    Modification:
+        metabolites -> (PC1, PC2, PC3)
+    Encoder:
+        (x,y,PCs) -> isodepths
+    Decoder:
+        isodepths -> metabolites
+    """
 
     def __init__(
         self,

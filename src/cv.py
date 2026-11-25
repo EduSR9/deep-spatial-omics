@@ -17,7 +17,6 @@ from src.factory import (
 )
 
 def evaluate_splits(
-    model_cls: type,
     model_cfg: dict,
     train_cfg: dict,
     coords: np.ndarray,
@@ -31,18 +30,32 @@ def evaluate_splits(
 
     Parameters
     ----------
-    model_cls, model_cfg : model class and the "model" section of config.yaml
-    train_cfg : the "training" section of config.yaml
-    coords, msi : np.ndarray, raw coordinates and MSI for all spots
-    mz : np.ndarray, original m/z labels in MSI column order
+    model_cfg : dict
+        The "model" section of config.yaml, including the model type and
+        model-specific parameters.
+    train_cfg : dict
+        The "training" section of config.yaml.
+    coords, msi : np.ndarray
+        Raw coordinates and MSI measurements for all spots.
+    mz : np.ndarray
+        Original m/z labels in MSI column order.
     splits : list of (train_idx, test_idx)
-    regions : np.ndarray of str, shape (n_spots,), from splits.region_labels
-    protocol : "random" or "spatial", stored in the output table
+        Train/test spot indices defining the evaluation splits.
+    regions : np.ndarray of str, shape (n_spots,)
+        Tissue region labels from splits.region_labels.
+    protocol : str
+        Evaluation protocol label ("random", "spatial", or "reconstruction"),
+        stored in the output tables.
 
     Returns
     -------
-    Two tables with split-level metrics and held-out R^2 per feature.
+    tuple[pd.DataFrame, pd.DataFrame]
+    results :
+        Split-level evaluation metrics (MSE, median R², region counts, etc.).
+    features :
+        Held-out R² values for each metabolite in each split.
     """
+    
     results = []
     feature_results = []
 
