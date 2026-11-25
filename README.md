@@ -64,6 +64,10 @@ The archived `attention_*_20f_3000` results use the metabolite-token decoder, no
 Register the model in `src/factory.py` and add its evaluation settings to `config.yaml`.
 See [SETUP.md](SETUP.md) for the input and output conventions.
 
+
+**Note:** The metabolite-token self-attention model (`self_attention`) was explored in preliminary experiments and is excluded from the final model comparison. The `attention` model used in the final comparison is the 64-neighbor graph attention model.
+
+
 ## Contributions
 
 **Cheng Yihan’s code contributions**
