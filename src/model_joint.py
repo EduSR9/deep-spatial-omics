@@ -82,3 +82,6 @@ class JointSpatialMetabolicModel(nn.Module):
             metabolites_recon,
             isodepths,
         )
+        
+    def decoder_weights(self):
+        return None
