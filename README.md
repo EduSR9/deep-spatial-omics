@@ -4,7 +4,8 @@ This repository contains the implementation and expansion of Deep Learning archi
 
 ## Project Overview
 
-The objective of this project is to leverage neural networks, specifically Multi-Layer Perceptrons (MLPs) implemented in PyTorch, to predict metabolite expression based strictly on geographical tissue coordinates (x, y).
+MET-MAP and the two attention models predict metabolite expression from tissue coordinates (x, y).
+XYM, Joint, and PCA also use measured metabolites to reconstruct expression at the same spots.
 
 We apply MET-MAP to the BC-515 breast cancer section: 3,508 spots, 2,086 metabolites.
 
@@ -23,9 +24,9 @@ src/
 │                                    and PCA preprocessing behind a shared interface
 ├── data.py                          load BC-515, TIC normalization, feature selection,
 │                                    standardization, and train/test preprocessing
-├── model.py                         original MET-MAP model
+├── model.py                         original MET-MAP and 64-neighbor graph attention
 │                                    (MetMapMLP: encoder (x, y) -> isodepths, linear decoder -> metabolites)
-├── attention.py                     attention-based MET-MAP variant
+├── attention.py                     metabolite-token self-attention decoder
 ├── model_xym.py                     XYM model: encoder (x, y, metabolites) -> isodepths,
 │                                    linear decoder -> metabolites
 ├── model_joint.py                   Joint Spatial-Metabolic model: encoder (x, y, metabolites) -> isodepths;
@@ -52,14 +53,16 @@ data/
 ├── BC_515_Section_1.h5ad            the dataset, download it (not tracked by git)
 ├── hmdb_compact.csv                 reduced HMDB 5.0 table used for the mass search
 └── annotation_reference_table1.csv  annotations of the original paper
-results/                             one folder per model and experiment
-                                     (not tracked by git)
+results/                             generated experiments and archived 20-feature results
 ```
+
+The archived `attention_*_20f_3000` results use the metabolite-token decoder, now selected with
+`--model self_attention`.
 
 ## Adding a model
 
-Files for model setup and training are created. `src/factory.py`, `config.yaml` are to be updated. 
-See more detailed instructions at the top of `src/model.py`.
+Register the model in `src/factory.py` and add its evaluation settings to `config.yaml`.
+See [SETUP.md](SETUP.md) for the input and output conventions.
 
 ## Contributions
 

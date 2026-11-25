@@ -218,7 +218,7 @@ Spatial Transcriptomics on the Same Cancer Tissues to Identify RNA-Metabolite Co
 HMDB 5.0: Wishart DS et al. HMDB 5.0: the Human Metabolome Database for 2022. <i>Nucleic Acids Res.</i> 2022,
 50(D1), D622-D631. <a href="https://doi.org/10.1093/nar/gkab1062">doi:10.1093/nar/gkab1062</a></p>
 </body></html>"""
-    path.write_text(page)
+    path.write_text(page, encoding="utf-8")
 
 
 def main() -> None:

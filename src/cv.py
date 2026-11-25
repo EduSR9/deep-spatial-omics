@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import torch
-from src.train import train_model
 from src.evaluate import reconstruction_r2
 from src.data import preprocess_split
 from src.factory import (

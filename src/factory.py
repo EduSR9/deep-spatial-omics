@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import torch
 import numpy as np
-from torchgen import model
-
-from src.model import MetMapMLP
-from src.attention import AttentionMetMap
+from src.model import AttentionMetMap, MetMapMLP
+from src.attention import AttentionMetMap as SelfAttentionMetMap
 
 from src.model_joint import JointSpatialMetabolicModel
 from src.model_xym import XYMMetMap
@@ -21,10 +19,13 @@ from src.train_pca import train_pca_model
 MODEL_REGISTRY = {
     "metmap": MetMapMLP,
     "attention": AttentionMetMap,
+    "self_attention": SelfAttentionMetMap,
     "joint": JointSpatialMetabolicModel,
     "xym": XYMMetMap,
     "pca": PCAMetMap,
 }
+
+MEASURED_INPUT_MODELS = {"joint", "xym", "pca"}
 
 """
 Master file for choosing model specific parameters and outputs.
@@ -49,45 +50,11 @@ def create_model(
     
     model_type = model_cfg["type"]
 
-    if model_type == "metmap":
-        return MetMapMLP(
-            n_features=n_features,
-            hidden_dim=model_cfg["hidden_dim"],
-            n_isodepth=model_cfg["n_isodepth"],
-        )
-
-    elif model_type == "attention":
-        return AttentionMetMap(
-            n_features=n_features,
-            hidden_dim=model_cfg["hidden_dim"],
-            n_isodepth=model_cfg["n_isodepth"],
-        )
-
-    elif model_type == "joint":
-        return JointSpatialMetabolicModel(
-            n_features=n_features,
-            hidden_dim=model_cfg["hidden_dim"],
-            n_isodepth=model_cfg["n_isodepth"],
-        )
-
-    elif model_type == "xym":
-        return XYMMetMap(
-            n_features=n_features,
-            hidden_dim=model_cfg["hidden_dim"],
-            n_isodepth=model_cfg["n_isodepth"],
-        )
-
-    elif model_type == "pca":
-        return PCAMetMap(
-            n_pcs=model_cfg["n_pcs"],
-            n_features=n_features,
-            hidden_dim=model_cfg["hidden_dim"],
-            n_isodepth=model_cfg["n_isodepth"],
-        )
-
-    raise ValueError(
-        f"Unknown model type: {model_type}"
-    )
+    params = {"n_features": n_features, "hidden_dim": model_cfg["hidden_dim"],
+              "n_isodepth": model_cfg["n_isodepth"]}
+    if model_type == "pca":
+        params["n_pcs"] = model_cfg["n_pcs"]
+    return MODEL_REGISTRY[model_type](**params)
 
 
 # =====================================================
@@ -107,7 +74,7 @@ def train_selected_model(
     training routine and return training diagnostics.
     """
     
-    if model_type in ("metmap", "attention", ):
+    if model_type not in MEASURED_INPUT_MODELS:
         total_losses, l1_losses = train_model(
             model,
             coords_t,
@@ -119,34 +86,17 @@ def train_selected_model(
             "l1_losses": l1_losses,
         }
 
+    device = torch.device(train_cfg.get("device", "cpu"))
+    model.to(device).train()
+    coords_t, targets_t = coords_t.to(device), targets_t.to(device)
+    if model_type == "pca":
+        result = train_pca_model(model, coords_t, pcs_t.to(device), targets_t, train_cfg)
     elif model_type == "joint":
-        return train_joint_model(
-            model,
-            coords_t,
-            targets_t,
-            train_cfg,
-        )
-
-    elif model_type == "xym":
-        return train_xym_model(
-            model,
-            coords_t,
-            targets_t,
-            train_cfg,
-        )
-
-    elif model_type == "pca":
-        return train_pca_model(
-            model,
-            coords_t,
-            pcs_t,
-            targets_t,
-            train_cfg,
-        )
-
-    raise ValueError(
-        f"Training not implemented for {model_type}"
-    )
+        result = train_joint_model(model, coords_t, targets_t, train_cfg)
+    else:
+        result = train_xym_model(model, coords_t, targets_t, train_cfg)
+    model.cpu()
+    return result
 
 # =====================================================
 # PREDICTION
@@ -170,7 +120,7 @@ def predict_model(
     with torch.no_grad():
 
         # Coordinate-only models.
-        if model_type in ("metmap","attention",):
+        if model_type not in MEASURED_INPUT_MODELS:
             prediction, isodepths = model(coords_t,)
 
         # Uses coordinates and metabolite profiles.
@@ -202,13 +152,14 @@ def fit_pca(metabolites, n_pcs,):
     """
     
     X = metabolites.numpy()
-    # Centre features before PCA.
-    X = X - X.mean(axis=0, keepdims=True,) 
-    U, S, Vt = np.linalg.svd(X, full_matrices=False,)
+    if not 1 <= n_pcs <= min(X.shape):
+        raise ValueError(f"n_pcs must be between 1 and {min(X.shape)} for this run.")
+    mean = X.mean(axis=0, keepdims=True)
+    _, _, components = np.linalg.svd(X - mean, full_matrices=False)
 
     return {
-        "mean": X.mean(axis=0,keepdims=True,),
-        "components": Vt[:n_pcs],
+        "mean": mean,
+        "components": components[:n_pcs],
     }
 
 def transform_pca(metabolites, pca,):

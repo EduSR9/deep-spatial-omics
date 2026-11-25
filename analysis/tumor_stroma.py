@@ -291,7 +291,7 @@ def run_data_path(run: Path) -> Path:
     """Data file used to train this run (from its config.yaml), or BC-515 if it is not there."""
     config_path = run / "config.yaml"
     if config_path.exists():
-        cfg = yaml.safe_load(config_path.read_text())
+        cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         filepath = cfg.get("data", {}).get("filepath")
         if filepath:
             return ROOT / filepath
