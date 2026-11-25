@@ -28,6 +28,8 @@ def train_model(
     cfg: dict,
 ) -> tuple[np.ndarray, np.ndarray | None]:
     """Train a fresh model on preprocessed training spots only."""
+    device = torch.device(cfg.get("device", "cpu"))
+    model.to(device).train()
     model.train()
     attention = isinstance(model, AttentionMetMap)
     if attention:
@@ -44,6 +46,8 @@ def train_model(
     )
     total_losses = np.zeros(cfg["epochs"])
     l1_losses = None if attention else np.zeros(cfg["epochs"])
+    penalty_losses = np.zeros(cfg["epochs"])
+    has_penalty = False
     # Match the reference input-gradient path.
     coords = coords.detach().clone().to(device).requires_grad_(True)
     targets = targets.to(device)
@@ -53,10 +57,21 @@ def train_model(
         coords.grad = None
         prediction, _ = model(coords)
         if l1_losses is not None:
-            total, l1 = compute_loss(prediction, targets, model.decoder.weight, cfg["lasso_lambda"])
+            total, l1 = compute_loss(
+                prediction,
+                targets,
+                model.decoder.weight,
+                cfg["lasso_lambda"],
+            )
             l1_losses[epoch] = l1.item()
+            penalty_losses[epoch] = l1.item()
+            has_penalty = True
         else:
-            total = nn.functional.mse_loss(prediction, targets, reduction="mean")
+            total = nn.functional.mse_loss(
+                prediction,
+                targets,
+                reduction="mean",
+            )
         total_losses[epoch] = total.item()
         total.backward()
         optimizer.step()
