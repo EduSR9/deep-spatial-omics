@@ -6,6 +6,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from src.attention import AttentionMetMap
+
 
 def make_optimizer(model: nn.Module, cfg: dict) -> torch.optim.Optimizer:
     # AdamW applies weight decay to weight matrices only.
@@ -33,8 +35,7 @@ def train_model(
         total_iters=cfg["lr_total_iters"],
     )
     total_losses = np.zeros(cfg["epochs"])
-    penalty_losses = np.zeros(cfg["epochs"])
-    has_penalty = False
+    l1_losses = None if attention else np.zeros(cfg["epochs"])
     # Match the reference input-gradient path.
     coords = coords.detach().clone().to(device).requires_grad_(True)
     targets = targets.to(device)
@@ -43,23 +44,23 @@ def train_model(
         optimizer.zero_grad()
         coords.grad = None
         prediction, _ = model(coords)
-        mse = nn.functional.mse_loss(prediction, targets, reduction="mean")
-        penalty = model.penalty(cfg["lasso_lambda"])
-        if penalty is None:
-            total = mse
+        if l1_losses is not None:
+            total, l1 = compute_loss(prediction, targets, model.decoder.weight, cfg["lasso_lambda"])
+            l1_losses[epoch] = l1.item()
         else:
-            total = mse + penalty
-            penalty_losses[epoch] = penalty.item()
-            has_penalty = True
+            total = nn.functional.mse_loss(prediction, targets, reduction="mean")
         total_losses[epoch] = total.item()
         total.backward()
         optimizer.step()
         scheduler.step()
         if (epoch + 1) % 500 == 0:
-            print(f"Epoch {epoch + 1}: total={total.item():.6f}, MSE={mse.item():.6f}", flush=True)
+          mse = total_losses[epoch] - (l1_losses[epoch] if l1_losses is not None else 0.0)
+          print(f"Epoch {epoch + 1}: total={total.item():.6f}, MSE={mse:.6f}", flush=True)
 
     # The shared evaluation code uses CPU tensors and NumPy.
     model.cpu()
     return total_losses, (penalty_losses if has_penalty else None)
 
+            
+            
 
