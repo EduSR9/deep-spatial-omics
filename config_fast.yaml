@@ -1,0 +1,41 @@
+model:
+  type: metmap
+  n_features: null
+  hidden_dim: 120
+  n_isodepth: 3
+  n_pcs: 3
+training:
+  epochs: 3000
+  learning_rate: 0.001
+  lasso_lambda: 0.0001
+  weight_decay: 0.0
+  lr_end_factor: 0.05
+  lr_total_iters: 12000
+  seed: 0
+data:
+  filepath: data/BC_515_Section_1.h5ad
+models:
+- name: metmap
+  type: metmap
+  color: '#2e8b57'
+- name: attention
+  type: attention
+  color: '#c0392b'
+  training:
+    weight_decay: 0.01
+- name: xym
+  type: xym
+  color: '#9a5bad'
+- name: joint
+  type: joint
+  color: '#c07818'
+- name: pca
+  type: pca
+  color: '#337f85'
+evaluation:
+  n_features: 10
+  test_fraction: 0.2
+  n_random_repeats: 1
+  n_spatial_folds: 2
+  interface_neighbors: 6
+  min_fold_fraction: 0.5
