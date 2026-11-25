@@ -23,6 +23,7 @@ Output: results/biology/<run name>/ (CSV tables and PNG figures)
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -82,16 +83,24 @@ def build_difference_table(log: np.ndarray, tumor: np.ndarray, stroma: np.ndarra
     return table.sort_values("size", ascending=False).reset_index(drop=True)
 
 
+def is_sugar(name: str) -> bool:
+    """Free sugars are single words ending in "-ose" (glucose, fructose, sucrose, hexose).
+    A phosphate suffix is removed first, so "Glucose 6-phosphate" counts as a sugar.
+    Sugar alcohols (sorbitol, mannitol) end in "-ol" or "-itol", and derivatives such as
+    "Sorbitol lactate" have a second word, so they are not sugars."""
+    base = re.sub(r"\s*[\d,\-]*\s*(bis)?phosphate$", "", name.strip(), flags=re.IGNORECASE)
+    return bool(re.fullmatch(r"(?:[dl]-)?(?:alpha-|beta-|a-|b-)?[a-z]+ose", base.strip(), flags=re.IGNORECASE))
+
+
 def chemical_class(name: str, hmdb_class: str = "") -> str:
-    """Simple chemical class from the lipid name (e.g. PI 34:1, PS(20:0/...)) or the HMDB class.
-    The HMDB class names come from its chemical taxonomy (sugars like glucose are listed there
-    as "Organooxygen compounds"). Anything else is "other"."""
+    """Simple chemical class from the lipid name (e.g. PI 34:1, PS(20:0/...)), the HMDB class
+    or the name pattern for sugars. Anything else is "other"."""
     head = name.split("(")[0].split(" ")[0]  # "PI 34:1" -> "PI", "PS(20:0/...)" -> "PS"
     if head == "FA" or hmdb_class == "Fatty Acyls":
         return "fatty acid"
     if head in LIPID_NAMES or hmdb_class in ("Glycerophospholipids", "Sphingolipids", "Glycerolipids"):
         return "lipid"
-    if name == "Hexose" or "Carbohydrate" in hmdb_class or hmdb_class == "Organooxygen compounds":
+    if is_sugar(name):
         return "sugar"
     return "other"
 
